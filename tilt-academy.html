@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Academy Driving Test — Tilt Prototype</title>
+<style>
+  :root{
+    --panel: rgba(12,16,24,.62);
+    --line: rgba(255,255,255,.22);
+    --amber:#ffc857;
+    --red:#ff4d4d;
+    --blue:#4da3ff;
+    --green:#5ee08a;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;overflow:hidden;background:#0b1017;
+    font-family:ui-rounded,'SF Pro Rounded',system-ui,-apple-system,'Segoe UI',sans-serif;
+    touch-action:none;user-select:none;-webkit-user-select:none;}
+  canvas{position:fixed;inset:0;display:block;}
+
+  #hud{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;
+    align-items:flex-start;padding:calc(10px + env(safe-area-inset-top)) 12px 0;
+    pointer-events:none;z-index:5;gap:8px;}
+  .chip{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:8px 12px;color:#eef3fa;font-size:13.5px;line-height:1.3;backdrop-filter:blur(6px);}
+  #laps b{color:var(--amber);font-variant-numeric:tabular-nums;}
+  #laps .best{color:var(--green);}
+  #gatechip{display:flex;align-items:center;gap:8px;}
+  #gatechip .lbl{font-size:11px;letter-spacing:.06em;color:#aebacb;text-transform:uppercase;}
+  #garr{display:inline-block;width:20px;height:20px;color:var(--green);font-size:18px;
+    line-height:20px;text-align:center;}
+  #gdist{font-variant-numeric:tabular-nums;min-width:40px;text-align:right;}
+  #gear{pointer-events:auto;border:1px solid var(--line);background:var(--panel);
+    color:#eef3fa;border-radius:14px;font-size:18px;padding:8px 12px;}
+
+  #msg{position:fixed;top:calc(64px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);
+    background:var(--panel);border:1px solid var(--line);color:#fff;border-radius:12px;
+    padding:8px 14px;font-size:14px;opacity:0;transition:opacity .18s;z-index:6;
+    pointer-events:none;max-width:88vw;text-align:center;}
+  #msg.show{opacity:1;}
+
+  /* steering meter */
+  #meter{position:fixed;left:50%;transform:translateX(-50%);
+    bottom:calc(86px + env(safe-area-inset-bottom));width:min(64vw,300px);height:16px;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;z-index:5;
+    pointer-events:none;}
+  #meter .mid{position:absolute;left:50%;top:2px;bottom:2px;width:2px;background:rgba(255,255,255,.3);}
+  #mraw{position:absolute;top:3px;bottom:3px;width:3px;background:#7f8da0;border-radius:2px;left:50%;}
+  #msm{position:absolute;top:1px;bottom:1px;width:7px;background:var(--amber);border-radius:4px;left:50%;
+    box-shadow:0 0 8px rgba(255,200,87,.6);}
+  #mlab{position:fixed;left:50%;transform:translateX(-50%);
+    bottom:calc(66px + env(safe-area-inset-bottom));color:#aebacb;font-size:11px;z-index:5;pointer-events:none;}
+
+  /* brake button */
+  #bBrake{position:fixed;right:16px;bottom:calc(24px + env(safe-area-inset-bottom));
+    width:78px;height:78px;border-radius:50%;background:var(--panel);
+    border:1px solid var(--line);color:#fff;font-size:15px;font-weight:700;letter-spacing:.05em;
+    z-index:7;backdrop-filter:blur(6px);}
+  #bBrake:active{background:rgba(200,70,70,.5);}
+  #gaslab{position:fixed;left:16px;bottom:calc(46px + env(safe-area-inset-bottom));
+    color:#aebacb;font-size:11.5px;z-index:5;pointer-events:none;background:var(--panel);
+    border:1px solid var(--line);border-radius:10px;padding:6px 10px;}
+
+  /* settings */
+  #settings{position:fixed;top:calc(60px + env(safe-area-inset-top));right:12px;z-index:9;
+    background:rgba(12,16,24,.9);border:1px solid var(--line);border-radius:16px;
+    color:#eef3fa;padding:14px 16px;width:min(84vw,300px);display:none;font-size:13.5px;}
+  #settings.open{display:block;}
+  #settings,#settings *{touch-action:auto;}
+  #settings h3{margin:0 0 10px;font-size:14px;color:var(--amber);letter-spacing:.05em;}
+  #settings .row{display:flex;justify-content:space-between;align-items:center;margin:10px 0;gap:10px;}
+  #settings input[type=range]{width:130px;}
+  #settings button{background:#1d2a3d;border:1px solid var(--line);color:#fff;
+    border-radius:9px;padding:7px 10px;font-size:13px;}
+  #settings .tog.on{background:#2b4a8c;border-color:var(--blue);}
+  #debug{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);
+    font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#9fb0c6;
+    white-space:pre;display:none;line-height:1.5;}
+  #debug.on{display:block;}
+
+  /* overlay */
+  #overlay{position:fixed;inset:0;z-index:10;background:
+    radial-gradient(120% 90% at 50% 0%, #172438 0%, #0b1017 62%);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    color:#eef3fa;text-align:center;padding:24px;}
+  #overlay h1{margin:0;font-size:clamp(28px,7.5vw,50px);letter-spacing:.03em;font-weight:800;}
+  #overlay h1 span{color:var(--amber);}
+  #overlay p.sub{margin:10px 0 6px;color:#aebacb;font-size:15px;max-width:340px;}
+  #overlay .how{margin:14px 0 4px;background:var(--panel);border:1px solid var(--line);
+    border-radius:16px;padding:14px 18px;font-size:14.5px;text-align:left;line-height:1.75;}
+  #bigStart{margin-top:24px;font-size:17px;font-weight:800;letter-spacing:.06em;color:#0b1017;
+    background:var(--amber);border:none;border-radius:14px;padding:15px 26px;
+    box-shadow:0 4px 0 rgba(0,0,0,.35);}
+  #bigStart:active{transform:translateY(2px);box-shadow:0 2px 0 rgba(0,0,0,.35);}
+  #alt{margin-top:14px;color:#8fa2bb;font-size:13px;text-decoration:underline;background:none;border:none;}
+  #cd{font-size:64px;font-weight:800;color:var(--amber);margin-top:10px;display:none;}
+  #note{margin-top:16px;color:#6d7e96;font-size:12px;max-width:320px;}
+  #credit{position:fixed;left:10px;bottom:calc(6px + env(safe-area-inset-bottom));color:#5c6b80;
+    font-size:10px;z-index:5;pointer-events:none;}
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div class="chip" id="laps">⏱ <b id="cur">0:00.0</b> · <span id="spd">0</span> mph<br>
+    <span style="font-size:12px;color:#aebacb">best <span class="best" id="best">—</span> · last <span id="last">—</span> · 🔶 <span id="cones">0</span></span></div>
+  <div style="display:flex;gap:8px;align-items:flex-start;">
+    <div class="chip" id="gatechip"><span class="lbl">Gate</span><span id="garr">▲</span><span id="gdist">—</span></div>
+    <button id="gear">⚙︎</button>
+  </div>
+</div>
+<div id="msg"></div>
+
+<div id="meter"><div class="mid"></div><div id="mraw"></div><div id="msm"></div></div>
+<div id="mlab">tilt steering</div>
+<div id="gaslab">HOLD SCREEN = GAS</div>
+<button id="bBrake">BRAKE</button>
+
+<div id="settings">
+  <h3>TILT SETTINGS</h3>
+  <div class="row"><span>Sensitivity<br><small id="sensv" style="color:#8fa2bb">22° = full lock</small></span>
+    <input type="range" id="sens" min="12" max="35" value="22"></div>
+  <div class="row"><span>Steering curve</span>
+    <button class="tog" id="tCurve">expo</button></div>
+  <div class="row"><span>Invert tilt</span>
+    <button class="tog" id="tInv">off</button></div>
+  <div class="row"><button id="bCal">↺ Recalibrate</button>
+    <button id="bReset">Reset best</button></div>
+  <div class="row"><span>Sensor debug</span>
+    <button class="tog" id="tDbg">off</button></div>
+  <div id="debug"></div>
+</div>
+
+<div id="overlay">
+  <h1>ACADEMY <span>DRIVING TEST</span></h1>
+  <p class="sub">Tilt-steering prototype · cone gates · lap timer</p>
+  <div class="how">
+    📱 Hold your phone like a <b>steering wheel</b><br>
+    ↔️ <b>Tilt</b> to steer &nbsp;·&nbsp; 👆 <b>Hold screen</b> to gas<br>
+    🎯 Drive through the <b style="color:var(--green)">green gate</b> — don't hit cones
+  </div>
+  <button id="bigStart">ENABLE TILT &amp; START</button>
+  <button id="alt">no tilt — use touch / keys instead</button>
+  <div id="cd"></div>
+  <div id="note">iPhone will ask for motion access — tap Allow.<br>
+  If tilt won't fire in an embedded viewer, open this file directly in your phone browser.</div>
+</div>
+<div id="credit">academy tilt test · prototype v0.1</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script id="game">
+'use strict';
+
+/* ============ helpers ============ */
+const rand=(a,b)=>a+Math.random()*(b-a);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const M=(color,opts)=>new THREE.MeshLambertMaterial(Object.assign({color},opts||{}));
+const $=id=>document.getElementById(id);
+
+/* ============ renderer / scene ============ */
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0xa7cde8);
+scene.fog=new THREE.Fog(0xa7cde8,90,320);
+const camera=new THREE.PerspectiveCamera(62,innerWidth/innerHeight,0.1,600);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));
+renderer.setSize(innerWidth,innerHeight);
+document.body.appendChild(renderer.domElement);
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+scene.add(new THREE.HemisphereLight(0xdfeeff,0x8f8672,0.95));
+const sun=new THREE.DirectionalLight(0xfff1d6,0.9);
+sun.position.set(60,90,35); scene.add(sun);
+
+/* ============ academy lot ============ */
+const LX=95, LZ=75;                 // lot half-extents
+{
+  const grass=new THREE.Mesh(new THREE.PlaneGeometry(520,520),M(0x5f8f57));
+  grass.rotation.x=-Math.PI/2; scene.add(grass);
+  const lot=new THREE.Mesh(new THREE.PlaneGeometry(LX*2,LZ*2),M(0x3a3d42));
+  lot.rotation.x=-Math.PI/2; lot.position.y=0.02; scene.add(lot);
+  // perimeter fence
+  const fm=M(0x8a8f97);
+  const w1=new THREE.Mesh(new THREE.BoxGeometry(LX*2+2,1,0.6),fm);
+  const w2=w1.clone(), w3=new THREE.Mesh(new THREE.BoxGeometry(0.6,1,LZ*2+2),fm);
+  const w4=w3.clone();
+  w1.position.set(0,0.5, LZ); w2.position.set(0,0.5,-LZ);
+  w3.position.set( LX,0.5,0); w4.position.set(-LX,0.5,0);
+  scene.add(w1,w2,w3,w4);
+}
+// academy building + flag (outside north fence)
+{
+  const b=new THREE.Mesh(new THREE.BoxGeometry(30,11,12),M(0xb7a98c));
+  b.position.set(0,5.5,LZ+16); scene.add(b);
+  const c=document.createElement('canvas'); c.width=512; c.height=96;
+  const x=c.getContext('2d');
+  x.fillStyle='#1c2b4d'; x.fillRect(0,0,512,96);
+  x.fillStyle='#fff'; x.font='700 52px system-ui,sans-serif';
+  x.textAlign='center'; x.textBaseline='middle';
+  x.fillText('POLICE ACADEMY',256,50);
+  const sign=new THREE.Mesh(new THREE.PlaneGeometry(20,3.6),
+    new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(c)}));
+  sign.position.set(0,8.4,LZ+16-6.02); sign.rotation.y=Math.PI; scene.add(sign);
+  const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,9,8),M(0xd8d8d8));
+  pole.position.set(-20,4.5,LZ+12); scene.add(pole);
+  const flag=new THREE.Mesh(new THREE.PlaneGeometry(2.6,1.5),
+    new THREE.MeshBasicMaterial({color:0x2b4a8c,side:THREE.DoubleSide}));
+  flag.position.set(-18.6,8,LZ+12); scene.add(flag);
+}
+
+/* ============ course: gates + cones ============ */
+// gates: {x,z,a} where a = travel direction (forward = (sin a, cos a))
+const GATES=[
+  {x:-60,z:-40,a:0},          // 0 START — heading +z, up the left side
+  {x:-60,z:  5,a:0},
+  {x:-60,z: 45,a:0},
+  {x:-25,z: 62,a:Math.PI/2},  // top straight, heading +x
+  {x: 15,z: 62,a:Math.PI/2},
+  {x: 55,z: 40,a:Math.PI},    // right side, heading -z (slalom!)
+  {x: 55,z:-45,a:Math.PI},
+  {x: 15,z:-62,a:-Math.PI/2}, // bottom straight, heading -x
+  {x:-25,z:-62,a:-Math.PI/2},
+];
+const GATE_HALF=5.5;
+const gateGroups=[];
+{
+  const poleG=new THREE.CylinderGeometry(0.18,0.2,2.3,8);
+  const orange=M(0xff7a2f), white=M(0xf2f2ec);
+  for(const g of GATES){
+    const grp=new THREE.Group();
+    const px=Math.cos(g.a), pz=-Math.sin(g.a); // perpendicular to travel dir
+    for(const s of[1,-1]){
+      const p=new THREE.Mesh(poleG,orange);
+      p.position.set(s*px*GATE_HALF,1.15,s*pz*GATE_HALF);
+      const band=new THREE.Mesh(new THREE.CylinderGeometry(0.21,0.21,0.34,8),white);
+      band.position.set(s*px*GATE_HALF,1.55,s*pz*GATE_HALF);
+      grp.add(p,band);
+    }
+    grp.position.set(g.x,0,g.z);
+    scene.add(grp); gateGroups.push(grp);
+  }
+  // checkered start strip
+  const c=document.createElement('canvas'); c.width=64; c.height=16;
+  const x=c.getContext('2d');
+  for(let i=0;i<8;i++)for(let j=0;j<2;j++){
+    x.fillStyle=(i+j)%2?'#111':'#eee'; x.fillRect(i*8,j*8,8,8);
+  }
+  const strip=new THREE.Mesh(new THREE.PlaneGeometry(GATE_HALF*2,1.8),
+    new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(c)}));
+  strip.rotation.x=-Math.PI/2;
+  strip.position.set(GATES[0].x,0.035,GATES[0].z);
+  scene.add(strip);
+}
+// next-gate beacon
+const beacon=new THREE.Mesh(new THREE.ConeGeometry(0.7,1.3,4),
+  new THREE.MeshBasicMaterial({color:0x5ee08a}));
+beacon.rotation.x=Math.PI; scene.add(beacon);
+
+// knockable cones
+const cones=[];
+function addCone(x,z){
+  const grp=new THREE.Group();
+  const body=new THREE.Mesh(new THREE.ConeGeometry(0.42,1.0,10),M(0xff7a2f));
+  body.position.y=0.55;
+  const band=new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.34,0.16,10),M(0xf2f2ec));
+  band.position.y=0.55;
+  const base=new THREE.Mesh(new THREE.BoxGeometry(0.85,0.1,0.85),M(0xd9611f));
+  base.position.y=0.05;
+  grp.add(body,band,base);
+  grp.position.set(x,0.02,z);
+  scene.add(grp);
+  cones.push({g:grp,x,z,hit:false,rz:0,dir:1});
+}
+// slalom down the right straight
+addCone(52,25); addCone(58,8); addCone(52,-9); addCone(58,-26);
+// corner clusters (decor, still knockable)
+addCone(-45,55); addCone(-42,50); addCone(40,-55); addCone(36,-58);
+addCone(-52,-52); addCone(48,52);
+
+/* ============ police car ============ */
+function policeDecal(){
+  const c=document.createElement('canvas'); c.width=256; c.height=64;
+  const x=c.getContext('2d');
+  x.fillStyle='#1d4ed8'; x.fillRect(0,0,256,64);
+  x.fillStyle='#fff'; x.font='700 40px system-ui,sans-serif';
+  x.textAlign='center'; x.textBaseline='middle';
+  x.fillText('ACADEMY',128,34);
+  return new THREE.CanvasTexture(c);
+}
+function makeCar(){
+  const g=new THREE.Group();
+  const white=M(0xf2f3f5), dark=M(0x1b1f26), glass=M(0x20242c);
+  const body=new THREE.Mesh(new THREE.BoxGeometry(2.2,0.55,4.6),white);
+  body.position.y=0.85; g.add(body);
+  const cabin=new THREE.Mesh(new THREE.BoxGeometry(1.9,0.55,2.2),glass);
+  cabin.position.set(0,1.35,-0.15); g.add(cabin);
+  for(const zz of[2.35,-2.35]){
+    const b=new THREE.Mesh(new THREE.BoxGeometry(2.3,0.3,0.25),dark);
+    b.position.set(0,0.62,zz); g.add(b);
+  }
+  const decal=policeDecal();
+  for(const s of[1,-1]){
+    const p=new THREE.Mesh(new THREE.PlaneGeometry(1.7,0.42),
+      new THREE.MeshBasicMaterial({map:decal}));
+    p.position.set(s*1.115,0.9,0.35); p.rotation.y=s*Math.PI/2; g.add(p);
+  }
+  const bar=new THREE.Mesh(new THREE.BoxGeometry(1.4,0.12,0.42),dark);
+  bar.position.set(0,1.7,-0.15); g.add(bar);
+  const matR=M(0xff2020,{emissive:0xff2020,emissiveIntensity:0.1});
+  const matB=M(0x2060ff,{emissive:0x2060ff,emissiveIntensity:0.1});
+  const lr=new THREE.Mesh(new THREE.BoxGeometry(0.6,0.2,0.36),matR);
+  lr.position.set(-0.36,1.85,-0.15);
+  const lb=new THREE.Mesh(new THREE.BoxGeometry(0.6,0.2,0.36),matB);
+  lb.position.set(0.36,1.85,-0.15);
+  g.add(lr,lb);
+  const wgeo=new THREE.CylinderGeometry(0.45,0.45,0.32,12);
+  wgeo.rotateZ(Math.PI/2);
+  const wheels=[],steers=[];
+  for(const [x,z,front] of [[-1.05,1.55,1],[1.05,1.55,1],[-1.05,-1.55,0],[1.05,-1.55,0]]){
+    const w=new THREE.Mesh(wgeo,dark);
+    if(front){ const p=new THREE.Group(); p.position.set(x,0.45,z); p.add(w); g.add(p); steers.push(p); }
+    else { w.position.set(x,0.45,z); g.add(w); }
+    wheels.push(w);
+  }
+  scene.add(g);
+  return {g,body,wheels,steers,matR,matB};
+}
+const carM=makeCar();
+const blobM=new THREE.Mesh(new THREE.CircleGeometry(2.4,20),
+  new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.26}));
+blobM.rotation.x=-Math.PI/2; blobM.position.y=0.06; scene.add(blobM);
+
+const car={x:GATES[0].x,z:GATES[0].z-14,a:0,speed:0};
+
+/* ============ tilt system ============ */
+const tilt={
+  enabled:false, fallback:false, haveEvent:false,
+  raw:0, deg:0, neutral:0, invert:false,
+  maxDeg:22, expo:true,
+  evCount:0, hz:0, lastBeta:0, lastGamma:0, lastAlpha:0,
+};
+function screenAngle(){
+  if(screen.orientation&&typeof screen.orientation.angle==='number')return screen.orientation.angle;
+  if(typeof window.orientation==='number')return (window.orientation+360)%360;
+  return 0;
+}
+function mapTilt(e){
+  switch(screenAngle()){
+    case 90:  return e.beta;
+    case 180: return -(e.gamma||0);
+    case 270: return -(e.beta||0);
+    default:  return e.gamma;
+  }
+}
+addEventListener('deviceorientation',e=>{
+  if(e.gamma===null&&e.beta===null)return;
+  tilt.haveEvent=true; tilt.evCount++;
+  tilt.lastBeta=e.beta||0; tilt.lastGamma=e.gamma||0; tilt.lastAlpha=e.alpha||0;
+  const v=mapTilt(e);
+  if(typeof v==='number')tilt.raw=v;
+});
+setInterval(()=>{tilt.hz=tilt.evCount; tilt.evCount=0;},1000);
+
+async function requestTilt(){
+  if(typeof DeviceOrientationEvent!=='undefined'
+     &&typeof DeviceOrientationEvent.requestPermission==='function'){
+    try{ return (await DeviceOrientationEvent.requestPermission())==='granted'; }
+    catch(e){ return false; }
+  }
+  return true; // non-iOS: no explicit permission
+}
+let calSamples=null;
+function calibrate(ms,done){
+  calSamples=[];
+  const t0=performance.now();
+  const iv=setInterval(()=>{
+    calSamples.push(tilt.raw);
+    if(performance.now()-t0>ms){
+      clearInterval(iv);
+      if(calSamples.length)
+        tilt.neutral=calSamples.reduce((a,b)=>a+b,0)/calSamples.length;
+      calSamples=null;
+      if(done)done();
+    }
+  },40);
+}
+
+/* steer sources: keyboard > touch-drag fallback > tilt */
+const keys={left:false,right:false,gas:false,brake:false};
+let steerRaw=0, steerSm=0, touchSteer=0, gasPointers=new Set();
+
+function computeSteer(dt){
+  let s;
+  if(keys.left||keys.right) s=(keys.right?1:0)-(keys.left?1:0);
+  else if(tilt.fallback) s=touchSteer;
+  else{
+    let d=tilt.raw-tilt.neutral;
+    if(tilt.invert)d=-d;
+    tilt.deg=d;
+    const dz=1.5;
+    s=Math.sign(d)*Math.max(0,Math.abs(d)-dz)/(tilt.maxDeg-dz);
+    s=clamp(s,-1,1);
+  }
+  steerRaw=clamp(s,-1,1);
+  const shaped=tilt.expo?steerRaw*(0.35+0.65*Math.abs(steerRaw)):steerRaw;
+  steerSm+=(shaped-steerSm)*Math.min(1,dt*14);
+}
+
+/* ============ lap state ============ */
+let started=false, target=1, lapStart=0, lapRunning=false;
+let bestLap=null, lastLap=null, conesHit=0;
+function fmt(ms){
+  const s=ms/1000;
+  return Math.floor(s/60)+':'+(s%60).toFixed(1).padStart(4,'0');
+}
+const msgEl=$('msg'); let msgT=0;
+function say(t,ms){ msgEl.textContent=t; msgEl.classList.add('show');
+  clearTimeout(msgT); msgT=setTimeout(()=>msgEl.classList.remove('show'),ms||2400); }
+
+function resetCones(){
+  conesHit=0; $('cones').textContent='0';
+  for(const c of cones){ c.hit=false; c.rz=0; c.g.rotation.z=0; c.g.rotation.x=0; c.g.position.y=0.02; }
+}
+function gateReached(i){
+  const g=GATES[i];
+  return Math.hypot(car.x-g.x,car.z-g.z)<GATE_HALF+1.5;
+}
+
+/* ============ input ============ */
+addEventListener('keydown',e=>{
+  if(e.repeat)return;
+  switch(e.code){
+    case 'ArrowLeft': case 'KeyA': keys.left=true; break;
+    case 'ArrowRight': case 'KeyD': keys.right=true; break;
+    case 'ArrowUp': case 'KeyW': keys.gas=true; break;
+    case 'ArrowDown': case 'KeyS': keys.brake=true; break;
+  }
+  if(e.code.startsWith('Arrow'))e.preventDefault();
+});
+addEventListener('keyup',e=>{
+  switch(e.code){
+    case 'ArrowLeft': case 'KeyA': keys.left=false; break;
+    case 'ArrowRight': case 'KeyD': keys.right=false; break;
+    case 'ArrowUp': case 'KeyW': keys.gas=false; break;
+    case 'ArrowDown': case 'KeyS': keys.brake=false; break;
+  }
+});
+addEventListener('blur',()=>{keys.left=keys.right=keys.gas=keys.brake=false;gasPointers.clear();});
+addEventListener('contextmenu',e=>e.preventDefault());
+
+const cv=renderer.domElement;
+cv.addEventListener('pointerdown',e=>{
+  gasPointers.add(e.pointerId);
+  if(tilt.fallback)touchSteer=clamp((e.clientX-innerWidth/2)/(innerWidth*0.3),-1,1);
+});
+cv.addEventListener('pointermove',e=>{
+  if(tilt.fallback&&gasPointers.has(e.pointerId))
+    touchSteer=clamp((e.clientX-innerWidth/2)/(innerWidth*0.3),-1,1);
+});
+for(const ev of['pointerup','pointercancel','pointerleave'])
+  cv.addEventListener(ev,e=>{gasPointers.delete(e.pointerId);
+    if(tilt.fallback&&gasPointers.size===0)touchSteer=0;});
+
+const bb=$('bBrake');
+bb.addEventListener('pointerdown',e=>{e.preventDefault();keys.brake=true;});
+for(const ev of['pointerup','pointercancel','pointerleave'])
+  bb.addEventListener(ev,e=>{keys.brake=false;});
+
+/* ============ settings ============ */
+$('gear').addEventListener('pointerdown',e=>{e.stopPropagation();$('settings').classList.toggle('open');});
+$('sens').addEventListener('input',e=>{
+  tilt.maxDeg=+e.target.value;
+  $('sensv').textContent=tilt.maxDeg+'° = full lock';
+});
+$('tInv').addEventListener('pointerdown',e=>{
+  tilt.invert=!tilt.invert;
+  e.target.textContent=tilt.invert?'on':'off';
+  e.target.classList.toggle('on',tilt.invert);
+});
+$('tCurve').addEventListener('pointerdown',e=>{
+  tilt.expo=!tilt.expo;
+  e.target.textContent=tilt.expo?'expo':'linear';
+});
+$('tDbg').addEventListener('pointerdown',e=>{
+  const on=$('debug').classList.toggle('on');
+  e.target.textContent=on?'on':'off';
+  e.target.classList.toggle('on',on);
+});
+$('bCal').addEventListener('pointerdown',()=>{
+  say('Hold steady… calibrating');
+  calibrate(800,()=>say('Zeroed ✓'));
+});
+$('bReset').addEventListener('pointerdown',()=>{
+  bestLap=null;$('best').textContent='—';say('Best lap cleared');
+});
+
+/* orientation change → recalibrate */
+function onOrient(){
+  if(!started||tilt.fallback)return;
+  say('Orientation changed — recalibrating…');
+  setTimeout(()=>calibrate(600,()=>say('Zeroed for this orientation ✓')),650);
+}
+addEventListener('orientationchange',onOrient);
+if(screen.orientation&&screen.orientation.addEventListener)
+  screen.orientation.addEventListener('change',onOrient);
+
+/* ============ start flow ============ */
+function beginGame(){
+  started=true; lapRunning=false; target=0;
+  $('overlay').style.display='none';
+  say('Roll through the checkered gate to start the clock');
+}
+function countdownThen(fn){
+  const cd=$('cd'); cd.style.display='block';
+  $('bigStart').style.display='none'; $('alt').style.display='none';
+  let n=3; cd.textContent=n;
+  const iv=setInterval(()=>{
+    n--;
+    if(n<=0){clearInterval(iv);cd.textContent='GO!';setTimeout(fn,350);}
+    else cd.textContent=n;
+  },800);
+}
+$('bigStart').addEventListener('click',async()=>{
+  const ok=await requestTilt();
+  if(!ok){
+    tilt.fallback=true;
+    say('Motion denied — touch steering on (slide thumb left/right)');
+    beginGame(); return;
+  }
+  tilt.enabled=true;
+  $('bigStart').textContent='HOLD PHONE COMFORTABLY…';
+  calibrate(900,()=>countdownThen(()=>{
+    beginGame();
+    // sensor sanity check — embedded viewers often block motion events
+    setTimeout(()=>{
+      if(!tilt.haveEvent){
+        tilt.fallback=true;
+        $('mlab').textContent='touch steering (no tilt data)';
+        say('No tilt data here — using touch. Open the file directly in your browser for tilt.',4200);
+      }
+    },1500);
+  }));
+});
+$('alt').addEventListener('click',()=>{
+  tilt.fallback=true;
+  $('mlab').textContent='touch steering';
+  beginGame();
+});
+
+/* ============ debug panel ============ */
+function uaShort(){
+  const m=navigator.userAgent.match(/Android [\d.]+|iPhone OS [\d_]+|CPU OS [\d_]+|iPad/);
+  return m?m[0].replace(/_/g,'.'):'desktop';
+}
+let dbgT=0;
+function updateDebug(now){
+  if(now-dbgT<200)return; dbgT=now;
+  if(!$('debug').classList.contains('on'))return;
+  $('debug').textContent=
+    'device   '+uaShort()+'\n'+
+    'orient   '+screenAngle()+'°  events '+tilt.hz+' Hz\n'+
+    'alpha    '+tilt.lastAlpha.toFixed(1)+'°\n'+
+    'beta     '+tilt.lastBeta.toFixed(1)+'°\n'+
+    'gamma    '+tilt.lastGamma.toFixed(1)+'°\n'+
+    'neutral  '+tilt.neutral.toFixed(1)+'°\n'+
+    'tilt     '+tilt.deg.toFixed(1)+'°  invert '+(tilt.invert?'Y':'N')+'\n'+
+    'steer    '+steerRaw.toFixed(2)+' → '+steerSm.toFixed(2)+
+    (tilt.fallback?'\nMODE     touch fallback':'');
+}
+
+/* ============ main loop ============ */
+const camPos=new THREE.Vector3(car.x,8,car.z-16);
+const clock=new THREE.Clock();
+const camQ=new THREE.Quaternion();
+const relV=new THREE.Vector3();
+
+function tick(){
+  requestAnimationFrame(tick);
+  const dt=Math.min(clock.getDelta(),0.05);
+  const now=performance.now(), t=now/1000;
+
+  if(started){
+    computeSteer(dt);
+
+    /* --- car physics --- */
+    const gas=keys.gas||gasPointers.size>0;
+    if(gas)car.speed+=24*dt;
+    if(keys.brake)car.speed-=30*dt;
+    car.speed-=car.speed*0.55*dt;
+    car.speed=clamp(car.speed,-8,32);
+    if(!gas&&!keys.brake&&Math.abs(car.speed)<0.05)car.speed=0;
+    car.a-=steerSm*2.1*dt*clamp(car.speed/16,-1.25,1.25);
+    const fx=Math.sin(car.a),fz=Math.cos(car.a);
+    car.x=clamp(car.x+fx*car.speed*dt,-LX+2,LX-2);
+    car.z=clamp(car.z+fz*car.speed*dt,-LZ+2,LZ-2);
+    for(const w of carM.wheels)w.rotation.x+=car.speed*dt/0.45;
+    for(const s of carM.steers)s.rotation.y=-steerSm*0.45;
+    carM.body.rotation.z+=(steerSm*clamp(Math.abs(car.speed)/30,0,1)*0.08-carM.body.rotation.z)*Math.min(1,dt*8);
+
+    /* --- cones --- */
+    for(const c of cones){
+      if(c.hit){
+        c.rz=Math.min(c.rz+dt*7,1.45);
+        c.g.rotation.z=c.rz*c.dir;
+        continue;
+      }
+      if(Math.hypot(car.x-c.x,car.z-c.z)<1.5&&Math.abs(car.speed)>2){
+        c.hit=true; c.dir=Math.random()<0.5?1:-1;
+        conesHit++; $('cones').textContent=conesHit;
+      }
+    }
+
+    /* --- gates / laps --- */
+    if(gateReached(target%GATES.length)){
+      const idx=target%GATES.length;
+      if(idx===0){ // crossed start/finish
+        if(lapRunning){
+          const lap=now-lapStart;
+          lastLap=lap; $('last').textContent=fmt(lap)+(conesHit?' +'+conesHit+'🔶':'');
+          if(bestLap===null||lap<bestLap){
+            bestLap=lap; $('best').textContent=fmt(lap);
+            say('★ New best lap! '+fmt(lap));
+          }else say('Lap: '+fmt(lap));
+        }
+        lapStart=now; lapRunning=true; resetCones();
+      }
+      target++;
+    }
+    const g=GATES[target%GATES.length];
+
+    /* --- HUD --- */
+    $('cur').textContent=lapRunning?fmt(now-lapStart):'0:00.0';
+    $('spd').textContent=Math.round(Math.abs(car.speed)*2.2);
+    const gd=Math.hypot(car.x-g.x,car.z-g.z);
+    relV.set(g.x-car.x,0,g.z-car.z).applyQuaternion(camQ.copy(camera.quaternion).invert());
+    $('garr').style.transform='rotate('+Math.atan2(relV.x,-relV.z)+'rad)';
+    $('gdist').textContent=Math.round(gd)+'m';
+    beacon.position.set(g.x,3.4+Math.sin(t*3)*0.3,g.z);
+    beacon.rotation.y=t*2;
+    $('mraw').style.left='calc(50% + '+(steerRaw*46)+'%)';
+    $('msm').style.left='calc(50% + '+(steerSm*46)+'%)';
+    updateDebug(now);
+  }
+
+  /* --- transforms / lights / camera --- */
+  carM.g.position.set(car.x,0,car.z); carM.g.rotation.y=car.a;
+  blobM.position.x=car.x; blobM.position.z=car.z;
+  const flash=Math.floor(t*2)%2;
+  carM.matR.emissiveIntensity=flash?1:0.08;
+  carM.matB.emissiveIntensity=flash?0.08:1;
+  camPos.lerp(new THREE.Vector3(car.x-Math.sin(car.a)*15,7.5,car.z-Math.cos(car.a)*15),
+    1-Math.exp(-4*dt));
+  camera.position.copy(camPos);
+  camera.lookAt(car.x,1.8,car.z);
+  renderer.render(scene,camera);
+}
+tick();
+</script>
+</body>
+</html>

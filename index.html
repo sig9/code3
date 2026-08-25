@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>CODE 3 — Chase One</title>
+<style>
+  :root{
+    --panel: rgba(12,16,24,.62);
+    --line: rgba(255,255,255,.22);
+    --amber:#ffc857;
+    --red:#ff4d4d;
+    --blue:#4da3ff;
+    --green:#5ee08a;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;overflow:hidden;background:#0b1017;
+    font-family:ui-rounded,'SF Pro Rounded',system-ui,-apple-system,'Segoe UI',sans-serif;
+    touch-action:none;user-select:none;-webkit-user-select:none;}
+  canvas{position:fixed;inset:0;display:block;}
+
+  #hud{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;
+    align-items:flex-start;padding:calc(10px + env(safe-area-inset-top)) 12px 0;
+    pointer-events:none;z-index:5;gap:8px;}
+  .chip{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:8px 12px;color:#eef3fa;font-size:13.5px;line-height:1.3;backdrop-filter:blur(6px);}
+  #score b{color:var(--amber);font-variant-numeric:tabular-nums;}
+  #modeTxt{color:var(--blue);font-weight:700;}
+  #gear{pointer-events:auto;border:1px solid var(--line);background:var(--panel);
+    color:#eef3fa;border-radius:14px;font-size:18px;padding:8px 12px;}
+
+  #msg{position:fixed;top:calc(64px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);
+    background:var(--panel);border:1px solid var(--line);color:#fff;border-radius:12px;
+    padding:8px 14px;font-size:14px;opacity:0;transition:opacity .18s;z-index:6;
+    pointer-events:none;max-width:88vw;text-align:center;}
+  #msg.show{opacity:1;}
+
+  /* steering meter */
+  #meter{position:fixed;left:50%;transform:translateX(-50%);
+    bottom:calc(86px + env(safe-area-inset-bottom));width:min(58vw,280px);height:16px;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;z-index:5;
+    pointer-events:none;}
+  #meter .mid{position:absolute;left:50%;top:2px;bottom:2px;width:2px;background:rgba(255,255,255,.3);}
+  #mraw{position:absolute;top:3px;bottom:3px;width:3px;background:#7f8da0;border-radius:2px;left:50%;}
+  #msm{position:absolute;top:1px;bottom:1px;width:7px;background:var(--amber);border-radius:4px;left:50%;
+    box-shadow:0 0 8px rgba(255,200,87,.6);}
+  #mlab{position:fixed;left:50%;transform:translateX(-50%);
+    bottom:calc(66px + env(safe-area-inset-bottom));color:#aebacb;font-size:11px;z-index:5;pointer-events:none;}
+
+  /* context action button — the morphing EXIT / ENTER / CUFF button */
+  #bAct{position:fixed;left:16px;bottom:calc(24px + env(safe-area-inset-bottom));
+    width:96px;height:96px;border-radius:50%;background:var(--panel);
+    border:2px solid var(--line);color:#fff;font-size:17px;font-weight:800;letter-spacing:.04em;
+    z-index:7;backdrop-filter:blur(6px);transition:border-color .15s,opacity .15s;}
+  #bAct.hot{border-color:var(--amber);background:rgba(122,90,20,.55);}
+  #bAct.cuff{border-color:var(--green);background:rgba(30,110,60,.55);}
+  #bAct.off{opacity:.35;}
+  #bAct:active{transform:scale(.94);}
+  #golab{position:fixed;right:16px;bottom:calc(46px + env(safe-area-inset-bottom));
+    color:#aebacb;font-size:11.5px;z-index:5;pointer-events:none;background:var(--panel);
+    border:1px solid var(--line);border-radius:10px;padding:6px 10px;}
+
+  /* settings */
+  #settings{position:fixed;top:calc(60px + env(safe-area-inset-top));right:12px;z-index:9;
+    background:rgba(12,16,24,.9);border:1px solid var(--line);border-radius:16px;
+    color:#eef3fa;padding:14px 16px;width:min(84vw,300px);display:none;font-size:13.5px;}
+  #settings.open{display:block;}
+  #settings,#settings *{touch-action:auto;}
+  #settings h3{margin:0 0 10px;font-size:14px;color:var(--amber);letter-spacing:.05em;}
+  #settings .row{display:flex;justify-content:space-between;align-items:center;margin:10px 0;gap:10px;}
+  #settings input[type=range]{width:130px;}
+  #settings button{background:#1d2a3d;border:1px solid var(--line);color:#fff;
+    border-radius:9px;padding:7px 10px;font-size:13px;}
+  #settings .tog.on{background:#2b4a8c;border-color:var(--blue);}
+  #debug{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);
+    font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#9fb0c6;
+    white-space:pre;display:none;line-height:1.5;}
+  #debug.on{display:block;}
+
+  /* overlay */
+  #overlay{position:fixed;inset:0;z-index:10;background:
+    radial-gradient(120% 90% at 50% 0%, #172438 0%, #0b1017 62%);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    color:#eef3fa;text-align:center;padding:24px;}
+  #overlay h1{margin:0;font-size:clamp(26px,7vw,46px);letter-spacing:.03em;font-weight:800;}
+  #overlay h1 span{color:var(--amber);}
+  #overlay p.sub{margin:10px 0 6px;color:#aebacb;font-size:15px;max-width:340px;}
+  #overlay .how{margin:14px 0 4px;background:var(--panel);border:1px solid var(--line);
+    border-radius:16px;padding:14px 18px;font-size:14.5px;text-align:left;line-height:1.75;}
+  #bigStart{margin-top:22px;font-size:17px;font-weight:800;letter-spacing:.06em;color:#0b1017;
+    background:var(--amber);border:none;border-radius:14px;padding:15px 26px;
+    box-shadow:0 4px 0 rgba(0,0,0,.35);}
+  #bigStart:active{transform:translateY(2px);box-shadow:0 2px 0 rgba(0,0,0,.35);}
+  #alt{margin-top:14px;color:#8fa2bb;font-size:13px;text-decoration:underline;background:none;border:none;}
+  #cd{font-size:64px;font-weight:800;color:var(--amber);margin-top:10px;display:none;}
+  #note{margin-top:16px;color:#6d7e96;font-size:12px;max-width:320px;}
+  #credit{position:fixed;left:10px;bottom:calc(6px + env(safe-area-inset-bottom));color:#5c6b80;
+    font-size:10px;z-index:5;pointer-events:none;}
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div class="chip" id="score">🚔 <b id="busts">0</b> busts · <span id="modeTxt">DRIVING</span><br>
+    <span style="font-size:12px;color:#aebacb"><span id="spd">0</span> mph · crook: <span id="cstate">unaware</span></span></div>
+  <div style="display:flex;gap:8px;align-items:flex-start;">
+    <div class="chip" id="track" style="display:flex;align-items:center;gap:8px;">
+      <span style="font-size:11px;letter-spacing:.06em;color:#aebacb;text-transform:uppercase;">Crook</span>
+      <span id="carr" style="display:inline-block;width:20px;height:20px;color:var(--red);font-size:18px;line-height:20px;text-align:center;">▲</span>
+      <span id="cdist" style="font-variant-numeric:tabular-nums;min-width:40px;text-align:right;">—</span>
+    </div>
+    <button id="gear">⚙︎</button>
+  </div>
+</div>
+<div id="msg"></div>
+
+<div id="meter"><div class="mid"></div><div id="mraw"></div><div id="msm"></div></div>
+<div id="mlab">tilt steering</div>
+<div id="golab">HOLD RIGHT SIDE = GO</div>
+<button id="bAct" class="off">—</button>
+
+<div id="settings">
+  <h3>TILT SETTINGS</h3>
+  <div class="row"><span>Sensitivity<br><small id="sensv" style="color:#8fa2bb">22° = full lock</small></span>
+    <input type="range" id="sens" min="12" max="35" value="22"></div>
+  <div class="row"><span>Steering curve</span>
+    <button class="tog" id="tCurve">expo</button></div>
+  <div class="row"><span>Invert tilt</span>
+    <button class="tog" id="tInv">off</button></div>
+  <div class="row"><button id="bCal">↺ Recalibrate</button>
+    <button id="bRespawn">Respawn crook</button></div>
+  <div class="row"><span>Sensor debug</span>
+    <button class="tog" id="tDbg">off</button></div>
+  <div id="debug"></div>
+</div>
+
+<div id="overlay">
+  <h1>CHASE <span>ONE</span></h1>
+  <p class="sub">Control-feel prototype · drive → dismount → foot chase → cuff</p>
+  <div class="how">
+    📱 <b>Tilt</b> to steer — car <i>and</i> on foot<br>
+    👆 <b>Hold right side</b> = gas / sprint<br>
+    🔘 Big button morphs: <b style="color:var(--amber)">EXIT</b> · <b>ENTER</b> · <b style="color:var(--green)">CUFF</b><br>
+    👂 The crook <b>hears your engine</b> — he'll run.<br>
+    🚧 He knows cars can't follow him through the alley…
+  </div>
+  <button id="bigStart">ENABLE TILT &amp; START</button>
+  <button id="alt">no tilt — use touch / keys instead</button>
+  <div id="cd"></div>
+  <div id="note">Desktop: arrows/WASD drive · SPACE = exit/enter · H = cuff.<br>
+  iPhone will ask for motion access — tap Allow.</div>
+</div>
+<div id="credit">code 3 · chase one · prototype v0.1</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script id="game">
+'use strict';
+
+/* ============ helpers ============ */
+const rand=(a,b)=>a+Math.random()*(b-a);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const M=(color,opts)=>new THREE.MeshLambertMaterial(Object.assign({color},opts||{}));
+const $=id=>document.getElementById(id);
+
+/* ============ renderer / scene ============ */
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0xa7cde8);
+scene.fog=new THREE.Fog(0xa7cde8,90,320);
+const camera=new THREE.PerspectiveCamera(62,innerWidth/innerHeight,0.1,600);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));
+renderer.setSize(innerWidth,innerHeight);
+document.body.appendChild(renderer.domElement);
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+scene.add(new THREE.HemisphereLight(0xdfeeff,0x8f8672,0.95));
+const sun=new THREE.DirectionalLight(0xfff1d6,0.9);
+sun.position.set(60,90,35); scene.add(sun);
+
+/* ============ one city block ============ */
+const LX=58, LZ=44;                 // playfield half-extents
+{
+  const grass=new THREE.Mesh(new THREE.PlaneGeometry(520,520),M(0x5f8f57));
+  grass.rotation.x=-Math.PI/2; scene.add(grass);
+  const road=new THREE.Mesh(new THREE.PlaneGeometry(LX*2,LZ*2),M(0x3a3d42));
+  road.rotation.x=-Math.PI/2; road.position.y=0.02; scene.add(road);
+  const fm=M(0x8a8f97);
+  const w1=new THREE.Mesh(new THREE.BoxGeometry(LX*2+2,1,0.6),fm);
+  const w2=w1.clone(), w3=new THREE.Mesh(new THREE.BoxGeometry(0.6,1,LZ*2+2),fm);
+  const w4=w3.clone();
+  w1.position.set(0,0.5, LZ); w2.position.set(0,0.5,-LZ);
+  w3.position.set( LX,0.5,0); w4.position.set(-LX,0.5,0);
+  scene.add(w1,w2,w3,w4);
+}
+// two buildings with an alley between — the car-proof shortcut
+const BUILDINGS=[
+  {x1:-24,x2:-5,z1:-16,z2:16},
+  {x1:  5,x2:24,z1:-16,z2:16},
+];
+{
+  const cols=[0xb7a98c,0x9aa7b8];
+  BUILDINGS.forEach((b,i)=>{
+    const w=b.x2-b.x1, d=b.z2-b.z1, h=10+i*3;
+    const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),M(cols[i]));
+    m.position.set((b.x1+b.x2)/2,h/2,(b.z1+b.z2)/2); scene.add(m);
+  });
+  // alley floor tint
+  const alley=new THREE.Mesh(new THREE.PlaneGeometry(10,32),M(0x33363b));
+  alley.rotation.x=-Math.PI/2; alley.position.set(0,0.03,0); scene.add(alley);
+}
+// bollards — block the car, not people
+const BOLLARDS=[];
+{
+  const bg=new THREE.CylinderGeometry(0.3,0.3,1.1,10);
+  const bm=M(0xd9d43f);
+  for(const z of[-17,17])for(const x of[-3,0,3]){
+    const p=new THREE.Mesh(bg,bm); p.position.set(x,0.55,z); scene.add(p);
+    BOLLARDS.push({x,z,r:0.35});
+  }
+}
+
+/* ============ collision ============ */
+function collide(px,pz,r,isCar){
+  for(const b of BUILDINGS){
+    const nx=clamp(px,b.x1,b.x2), nz=clamp(pz,b.z1,b.z2);
+    let dx=px-nx, dz=pz-nz;
+    const d2=dx*dx+dz*dz;
+    if(d2<r*r){
+      if(d2<1e-6){
+        const l=px-b.x1, rt=b.x2-px, t=pz-b.z1, bo=b.z2-pz;
+        const m=Math.min(l,rt,t,bo);
+        if(m===l)px=b.x1-r; else if(m===rt)px=b.x2+r;
+        else if(m===t)pz=b.z1-r; else pz=b.z2+r;
+      }else{
+        const d=Math.sqrt(d2); px=nx+dx/d*r; pz=nz+dz/d*r;
+      }
+    }
+  }
+  for(const bo of BOLLARDS){
+    const dx=px-bo.x, dz=pz-bo.z, rr=r+bo.r, d2=dx*dx+dz*dz;
+    if(d2<rr*rr&&d2>1e-6){const d=Math.sqrt(d2); px=bo.x+dx/d*rr; pz=bo.z+dz/d*rr;}
+  }
+  return [clamp(px,-LX+r,LX-r), clamp(pz,-LZ+r,LZ-r)];
+}
+
+/* ============ police car ============ */
+function policeDecal(){
+  const c=document.createElement('canvas'); c.width=256; c.height=64;
+  const x=c.getContext('2d');
+  x.fillStyle='#1d4ed8'; x.fillRect(0,0,256,64);
+  x.fillStyle='#fff'; x.font='700 40px system-ui,sans-serif';
+  x.textAlign='center'; x.textBaseline='middle';
+  x.fillText('POLICE',128,34);
+  return new THREE.CanvasTexture(c);
+}
+function makeCar(){
+  const g=new THREE.Group();
+  const white=M(0xf2f3f5), dark=M(0x1b1f26), glass=M(0x20242c);
+  const body=new THREE.Mesh(new THREE.BoxGeometry(2.2,0.55,4.6),white);
+  body.position.y=0.85; g.add(body);
+  const cabin=new THREE.Mesh(new THREE.BoxGeometry(1.9,0.55,2.2),glass);
+  cabin.position.set(0,1.35,-0.15); g.add(cabin);
+  for(const zz of[2.35,-2.35]){
+    const b=new THREE.Mesh(new THREE.BoxGeometry(2.3,0.3,0.25),dark);
+    b.position.set(0,0.62,zz); g.add(b);
+  }
+  const decal=policeDecal();
+  for(const s of[1,-1]){
+    const p=new THREE.Mesh(new THREE.PlaneGeometry(1.7,0.42),
+      new THREE.MeshBasicMaterial({map:decal}));
+    p.position.set(s*1.115,0.9,0.35); p.rotation.y=s*Math.PI/2; g.add(p);
+  }
+  const bar=new THREE.Mesh(new THREE.BoxGeometry(1.4,0.12,0.42),dark);
+  bar.position.set(0,1.7,-0.15); g.add(bar);
+  const matR=M(0xff2020,{emissive:0xff2020,emissiveIntensity:0.1});
+  const matB=M(0x2060ff,{emissive:0x2060ff,emissiveIntensity:0.1});
+  const lr=new THREE.Mesh(new THREE.BoxGeometry(0.6,0.2,0.36),matR);
+  lr.position.set(-0.36,1.85,-0.15);
+  const lb=new THREE.Mesh(new THREE.BoxGeometry(0.6,0.2,0.36),matB);
+  lb.position.set(0.36,1.85,-0.15);
+  g.add(lr,lb);
+  const wgeo=new THREE.CylinderGeometry(0.45,0.45,0.32,12);
+  wgeo.rotateZ(Math.PI/2);
+  const wheels=[],steers=[];
+  for(const [x,z,front] of [[-1.05,1.55,1],[1.05,1.55,1],[-1.05,-1.55,0],[1.05,-1.55,0]]){
+    const w=new THREE.Mesh(wgeo,dark);
+    if(front){ const p=new THREE.Group(); p.position.set(x,0.45,z); p.add(w); g.add(p); steers.push(p); }
+    else { w.position.set(x,0.45,z); g.add(w); }
+    wheels.push(w);
+  }
+  scene.add(g);
+  return {g,body,wheels,steers,matR,matB};
+}
+const carM=makeCar();
+const blobM=new THREE.Mesh(new THREE.CircleGeometry(2.4,20),
+  new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.26}));
+blobM.rotation.x=-Math.PI/2; blobM.position.y=0.06; scene.add(blobM);
+
+/* ============ people ============ */
+function makePerson(torsoMat,hatColor){
+  const g=new THREE.Group();
+  const legs=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.7,0.32),M(0x24303f));
+  legs.position.y=0.35; g.add(legs);
+  const torso=new THREE.Mesh(new THREE.BoxGeometry(0.66,0.75,0.4),torsoMat);
+  torso.position.y=1.07; g.add(torso);
+  const head=new THREE.Mesh(new THREE.SphereGeometry(0.27,12,10),M(0xf0c8a0));
+  head.position.y=1.72; g.add(head);
+  const hat=new THREE.Mesh(new THREE.CylinderGeometry(0.29,0.29,0.16,12),M(hatColor));
+  hat.position.y=1.92; g.add(hat);
+  scene.add(g);
+  return g;
+}
+function stripeMat(){
+  const c=document.createElement('canvas'); c.width=32; c.height=32;
+  const x=c.getContext('2d');
+  for(let i=0;i<4;i++){ x.fillStyle=i%2?'#e8e8e8':'#23262b'; x.fillRect(0,i*8,32,8); }
+  const t=new THREE.CanvasTexture(c); t.magFilter=THREE.NearestFilter;
+  return new THREE.MeshLambertMaterial({map:t});
+}
+const copM=makePerson(M(0x2b4a8c),0x1c2b4d);
+const crookM=makePerson(stripeMat(),0x333333);
+copM.visible=false;
+
+// "!" alert marker over the crook's head
+function textSprite(txt,color){
+  const c=document.createElement('canvas'); c.width=64; c.height=64;
+  const x=c.getContext('2d');
+  x.font='900 52px system-ui,sans-serif'; x.textAlign='center'; x.textBaseline='middle';
+  x.fillStyle=color; x.fillText(txt,32,36);
+  const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true}));
+  s.scale.set(1.3,1.3,1); scene.add(s); s.visible=false;
+  return s;
+}
+const alertS=textSprite('!','#ff4d4d');
+// dizzy stars for the cuffed crook
+const stars=[];
+for(let i=0;i<3;i++){
+  const s=new THREE.Mesh(new THREE.SphereGeometry(0.09,8,6),
+    new THREE.MeshBasicMaterial({color:0xffd94d}));
+  s.visible=false; scene.add(s); stars.push(s);
+}
+
+/* ============ entities ============ */
+const car={x:-45,z:-35,a:Math.PI/2,speed:0};   // parked lower-left, facing +x
+const cop={x:0,z:0,a:0,speed:0};
+const crook={x:45,z:35,a:0,speed:0,state:'calm',stam:5,tired:false,wp:-1,prev:-1,cuffT:0,alerted:false};
+let mode='drive';   // 'drive' | 'foot'
+let busts=0;
+
+/* crook waypoint graph: ring + alley */
+const WPS=[
+  {x:-45,z:-33},{x:0,z:-33},{x:45,z:-33},{x:45,z:0},
+  {x:45,z:33},{x:0,z:33},{x:-45,z:33},{x:-45,z:0},
+  {x:1.5,z:-20},{x:1.5,z:20},{x:1.5,z:0},   // alley S entrance, N entrance, mid
+];
+const EDGES=[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[6,7],[7,0],[1,8],[5,9],[8,10],[9,10]];
+const NBR=WPS.map(()=>[]);
+for(const[a,b]of EDGES){NBR[a].push(b);NBR[b].push(a);}
+function nearestWp(x,z){
+  let bi=0,bd=1e9;
+  WPS.forEach((w,i)=>{const d=Math.hypot(x-w.x,z-w.z); if(d<bd){bd=d;bi=i;}});
+  return bi;
+}
+
+/* ============ tilt system (from tilt-academy) ============ */
+const tilt={
+  enabled:false, fallback:false, haveEvent:false,
+  raw:0, deg:0, neutral:0, invert:false,
+  maxDeg:22, expo:true,
+  evCount:0, hz:0, lastBeta:0, lastGamma:0, lastAlpha:0,
+};
+function screenAngle(){
+  if(screen.orientation&&typeof screen.orientation.angle==='number')return screen.orientation.angle;
+  if(typeof window.orientation==='number')return (window.orientation+360)%360;
+  return 0;
+}
+function mapTilt(e){
+  switch(screenAngle()){
+    case 90:  return e.beta;
+    case 180: return -(e.gamma||0);
+    case 270: return -(e.beta||0);
+    default:  return e.gamma;
+  }
+}
+addEventListener('deviceorientation',e=>{
+  if(e.gamma===null&&e.beta===null)return;
+  tilt.haveEvent=true; tilt.evCount++;
+  tilt.lastBeta=e.beta||0; tilt.lastGamma=e.gamma||0; tilt.lastAlpha=e.alpha||0;
+  const v=mapTilt(e);
+  if(typeof v==='number')tilt.raw=v;
+});
+setInterval(()=>{tilt.hz=tilt.evCount; tilt.evCount=0;},1000);
+
+async function requestTilt(){
+  if(typeof DeviceOrientationEvent!=='undefined'
+     &&typeof DeviceOrientationEvent.requestPermission==='function'){
+    try{ return (await DeviceOrientationEvent.requestPermission())==='granted'; }
+    catch(e){ return false; }
+  }
+  return true;
+}
+let calSamples=null;
+function calibrate(ms,done){
+  calSamples=[];
+  const t0=performance.now();
+  const iv=setInterval(()=>{
+    calSamples.push(tilt.raw);
+    if(performance.now()-t0>ms){
+      clearInterval(iv);
+      if(calSamples.length)
+        tilt.neutral=calSamples.reduce((a,b)=>a+b,0)/calSamples.length;
+      calSamples=null;
+      if(done)done();
+    }
+  },40);
+}
+
+/* steer sources: keyboard > touch fallback > tilt */
+const keys={left:false,right:false,gas:false,brake:false};
+let steerRaw=0, steerSm=0, touchSteer=0, goPointers=new Set();
+
+function computeSteer(dt){
+  let s;
+  if(keys.left||keys.right) s=(keys.right?1:0)-(keys.left?1:0);
+  else if(tilt.fallback) s=touchSteer;
+  else{
+    let d=tilt.raw-tilt.neutral;
+    if(tilt.invert)d=-d;
+    tilt.deg=d;
+    const dz=1.5;
+    s=Math.sign(d)*Math.max(0,Math.abs(d)-dz)/(tilt.maxDeg-dz);
+    s=clamp(s,-1,1);
+  }
+  steerRaw=clamp(s,-1,1);
+  const shaped=tilt.expo?steerRaw*(0.35+0.65*Math.abs(steerRaw)):steerRaw;
+  steerSm+=(shaped-steerSm)*Math.min(1,dt*14);
+}
+
+/* ============ messages ============ */
+let started=false;
+const msgEl=$('msg'); let msgT=0;
+function say(t,ms){ msgEl.textContent=t; msgEl.classList.add('show');
+  clearTimeout(msgT); msgT=setTimeout(()=>msgEl.classList.remove('show'),ms||2400); }
+
+/* ============ context action ============ */
+const bAct=$('bAct');
+function affordance(){
+  if(!started)return null;
+  if(mode==='foot'){
+    if(crook.state!=='cuffed'&&Math.hypot(cop.x-crook.x,cop.z-crook.z)<2.6)
+      return 'cuff';
+    if(Math.hypot(cop.x-car.x,cop.z-car.z)<3.5)return 'enter';
+    return null;
+  }
+  if(Math.abs(car.speed)<8)return 'exit';
+  return 'slow';
+}
+function doAction(){
+  const a=affordance();
+  if(a==='cuff'){
+    crook.state='cuffed'; crook.cuffT=performance.now();
+    busts++; $('busts').textContent=busts;
+    say('🚔 CUFFED! Nice work, officer.');
+  }else if(a==='enter'){
+    mode='drive'; copM.visible=false;
+    say('Back in the cruiser');
+  }else if(a==='exit'){
+    mode='foot';
+    car.speed*=0.2;
+    const sx=Math.cos(car.a), sz=-Math.sin(car.a);   // driver's side
+    [cop.x,cop.z]=collide(car.x+sx*2.2,car.z+sz*2.2,0.45);
+    cop.a=car.a; cop.speed=0;
+    copM.visible=true;
+    say('On foot — tilt to weave, hold right side to sprint');
+  }else if(a==='slow'){
+    say('Too fast — slow down to jump out');
+  }
+}
+function updateActBtn(){
+  const a=affordance();
+  bAct.className='';
+  if(a==='cuff'){bAct.textContent='CUFF'; bAct.classList.add('cuff');}
+  else if(a==='enter'){bAct.textContent='ENTER'; bAct.classList.add('hot');}
+  else if(a==='exit'){bAct.textContent='EXIT'; bAct.classList.add('hot');}
+  else if(a==='slow'){bAct.textContent='EXIT'; bAct.classList.add('off');}
+  else {bAct.textContent='—'; bAct.classList.add('off');}
+}
+bAct.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();doAction();});
+
+/* ============ input ============ */
+addEventListener('keydown',e=>{
+  if(e.repeat)return;
+  switch(e.code){
+    case 'ArrowLeft': case 'KeyA': keys.left=true; break;
+    case 'ArrowRight': case 'KeyD': keys.right=true; break;
+    case 'ArrowUp': case 'KeyW': keys.gas=true; break;
+    case 'ArrowDown': case 'KeyS': keys.brake=true; break;
+    case 'Space': doAction(); break;
+    case 'KeyH': if(affordance()==='cuff')doAction(); break;
+    case 'KeyE': { const a=affordance(); if(a==='enter'||a==='exit')doAction(); break; }
+  }
+  if(e.code.startsWith('Arrow')||e.code==='Space')e.preventDefault();
+});
+addEventListener('keyup',e=>{
+  switch(e.code){
+    case 'ArrowLeft': case 'KeyA': keys.left=false; break;
+    case 'ArrowRight': case 'KeyD': keys.right=false; break;
+    case 'ArrowUp': case 'KeyW': keys.gas=false; break;
+    case 'ArrowDown': case 'KeyS': keys.brake=false; break;
+  }
+});
+addEventListener('blur',()=>{keys.left=keys.right=keys.gas=keys.brake=false;goPointers.clear();});
+addEventListener('contextmenu',e=>e.preventDefault());
+
+const cv=renderer.domElement;
+cv.addEventListener('pointerdown',e=>{
+  if(e.clientX>innerWidth/2) goPointers.add(e.pointerId);          // right half = go
+  else if(tilt.fallback)                                            // left half = touch steer
+    touchSteer=clamp((e.clientX-innerWidth/4)/(innerWidth*0.18),-1,1);
+});
+cv.addEventListener('pointermove',e=>{
+  if(tilt.fallback&&!goPointers.has(e.pointerId)&&e.buttons)
+    touchSteer=clamp((e.clientX-innerWidth/4)/(innerWidth*0.18),-1,1);
+});
+for(const ev of['pointerup','pointercancel','pointerleave'])
+  cv.addEventListener(ev,e=>{
+    goPointers.delete(e.pointerId);
+    if(tilt.fallback&&!e.buttons)touchSteer=0;
+  });
+
+/* ============ settings ============ */
+$('gear').addEventListener('pointerdown',e=>{e.stopPropagation();$('settings').classList.toggle('open');});
+$('sens').addEventListener('input',e=>{
+  tilt.maxDeg=+e.target.value;
+  $('sensv').textContent=tilt.maxDeg+'° = full lock';
+});
+$('tInv').addEventListener('pointerdown',e=>{
+  tilt.invert=!tilt.invert;
+  e.target.textContent=tilt.invert?'on':'off';
+  e.target.classList.toggle('on',tilt.invert);
+});
+$('tCurve').addEventListener('pointerdown',e=>{
+  tilt.expo=!tilt.expo;
+  e.target.textContent=tilt.expo?'expo':'linear';
+});
+$('tDbg').addEventListener('pointerdown',e=>{
+  const on=$('debug').classList.toggle('on');
+  e.target.textContent=on?'on':'off';
+  e.target.classList.toggle('on',on);
+});
+$('bCal').addEventListener('pointerdown',()=>{
+  say('Hold steady… calibrating');
+  calibrate(800,()=>say('Zeroed ✓'));
+});
+$('bRespawn').addEventListener('pointerdown',()=>{respawnCrook();say('Crook respawned');});
+
+function onOrient(){
+  if(!started||tilt.fallback)return;
+  say('Orientation changed — recalibrating…');
+  setTimeout(()=>calibrate(600,()=>say('Zeroed for this orientation ✓')),650);
+}
+addEventListener('orientationchange',onOrient);
+if(screen.orientation&&screen.orientation.addEventListener)
+  screen.orientation.addEventListener('change',onOrient);
+
+/* ============ start flow ============ */
+function beginGame(){
+  started=true;
+  $('overlay').style.display='none';
+  say('Find the crook — he can hear your engine 👂');
+}
+function countdownThen(fn){
+  const cd=$('cd'); cd.style.display='block';
+  $('bigStart').style.display='none'; $('alt').style.display='none';
+  let n=3; cd.textContent=n;
+  const iv=setInterval(()=>{
+    n--;
+    if(n<=0){clearInterval(iv);cd.textContent='GO!';setTimeout(fn,350);}
+    else cd.textContent=n;
+  },800);
+}
+$('bigStart').addEventListener('click',async()=>{
+  const ok=await requestTilt();
+  if(!ok){
+    tilt.fallback=true;
+    say('Motion denied — touch steering on (slide thumb, left half)');
+    beginGame(); return;
+  }
+  tilt.enabled=true;
+  $('bigStart').textContent='HOLD PHONE COMFORTABLY…';
+  calibrate(900,()=>countdownThen(()=>{
+    beginGame();
+    setTimeout(()=>{
+      if(!tilt.haveEvent){
+        tilt.fallback=true;
+        $('mlab').textContent='touch steering (no tilt data)';
+        say('No tilt data here — using touch. Open the file directly in your browser for tilt.',4200);
+      }
+    },1500);
+  }));
+});
+$('alt').addEventListener('click',()=>{
+  tilt.fallback=true;
+  $('mlab').textContent='touch steering';
+  beginGame();
+});
+
+/* ============ crook AI ============ */
+function hearingRadius(){
+  if(mode==='drive') return Math.abs(car.speed)>0.5 ? 30 : 14;  // engine vs idle
+  return 11;                                                     // footsteps
+}
+function threatPos(){ return mode==='drive'?{x:car.x,z:car.z}:{x:cop.x,z:cop.z}; }
+
+function pickNextWp(){
+  const th=threatPos();
+  const cur=crook.wp<0?nearestWp(crook.x,crook.z):crook.wp;
+  let best=-1,bs=-1e9;
+  for(const n of NBR[cur]){
+    let s=Math.hypot(WPS[n].x-th.x,WPS[n].z-th.z)+rand(0,4);
+    if(n===crook.prev)s-=18;
+    if(s>bs){bs=s;best=n;}
+  }
+  crook.prev=cur; crook.wp=best;
+}
+function respawnCrook(){
+  const th=threatPos();
+  let bi=0,bd=-1;
+  WPS.forEach((w,i)=>{const d=Math.hypot(w.x-th.x,w.z-th.z); if(d>bd){bd=d;bi=i;}});
+  crook.x=WPS[bi].x; crook.z=WPS[bi].z;
+  crook.state='calm'; crook.alerted=false; crook.wp=-1; crook.prev=-1;
+  crook.stam=5; crook.tired=false; crook.speed=0;
+  crookM.rotation.z=0;
+}
+function updateCrook(dt,now){
+  if(crook.state==='cuffed'){
+    if(now-crook.cuffT>2500){ respawnCrook(); say('New crook spotted on the block 👀'); }
+    return;
+  }
+  const th=threatPos();
+  const d=Math.hypot(crook.x-th.x,crook.z-th.z);
+  if(crook.state==='calm'){
+    if(d<hearingRadius()){
+      crook.state='flee'; crook.wp=-1;
+      if(!crook.alerted){crook.alerted=true;say('❗ He heard you — he\'s running!');}
+    }
+    $('cstate').textContent='unaware';
+    return;
+  }
+  // fleeing
+  if(crook.wp<0||Math.hypot(crook.x-WPS[crook.wp].x,crook.z-WPS[crook.wp].z)<2.5)
+    pickNextWp();
+  // stamina: sprint bursts, then tire
+  if(crook.tired){
+    crook.stam+=dt*1.1;
+    if(crook.stam>=5)crook.tired=false;
+  }else{
+    crook.stam-=dt;
+    if(crook.stam<=0)crook.tired=true;
+  }
+  const spd=crook.tired?3.2:6.6;
+  crook.speed+=(spd-crook.speed)*Math.min(1,dt*4);
+  const w=WPS[crook.wp];
+  const ta=Math.atan2(w.x-crook.x,w.z-crook.z);
+  let da=ta-crook.a;
+  while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI;
+  crook.a+=clamp(da,-4*dt,4*dt);
+  [crook.x,crook.z]=collide(
+    crook.x+Math.sin(crook.a)*crook.speed*dt,
+    crook.z+Math.cos(crook.a)*crook.speed*dt,0.45);
+  $('cstate').textContent=crook.tired?'tired 😮‍💨':'fleeing!';
+}
+
+/* ============ debug panel ============ */
+function uaShort(){
+  const m=navigator.userAgent.match(/Android [\d.]+|iPhone OS [\d_]+|CPU OS [\d_]+|iPad/);
+  return m?m[0].replace(/_/g,'.'):'desktop';
+}
+let dbgT=0;
+function updateDebug(now){
+  if(now-dbgT<200)return; dbgT=now;
+  if(!$('debug').classList.contains('on'))return;
+  $('debug').textContent=
+    'device   '+uaShort()+'\n'+
+    'orient   '+screenAngle()+'°  events '+tilt.hz+' Hz\n'+
+    'beta     '+tilt.lastBeta.toFixed(1)+'°  gamma '+tilt.lastGamma.toFixed(1)+'°\n'+
+    'neutral  '+tilt.neutral.toFixed(1)+'°  tilt '+tilt.deg.toFixed(1)+'°\n'+
+    'steer    '+steerRaw.toFixed(2)+' → '+steerSm.toFixed(2)+'\n'+
+    'mode     '+mode+(tilt.fallback?' · touch fallback':'');
+}
+
+/* ============ main loop ============ */
+const camPos=new THREE.Vector3(car.x,8,car.z-16);
+const clock=new THREE.Clock();
+const camQ=new THREE.Quaternion();
+const relV=new THREE.Vector3();
+
+function tick(){
+  requestAnimationFrame(tick);
+  const dt=Math.min(clock.getDelta(),0.05);
+  const now=performance.now(), t=now/1000;
+
+  if(started){
+    computeSteer(dt);
+    const go=keys.gas||goPointers.size>0;
+
+    if(mode==='drive'){
+      if(go)car.speed+=24*dt;
+      if(keys.brake)car.speed-=30*dt;
+      car.speed-=car.speed*0.55*dt;
+      car.speed=clamp(car.speed,-8,32);
+      if(!go&&!keys.brake&&Math.abs(car.speed)<0.05)car.speed=0;
+      car.a-=steerSm*2.1*dt*clamp(car.speed/16,-1.25,1.25);
+      [car.x,car.z]=collide(
+        car.x+Math.sin(car.a)*car.speed*dt,
+        car.z+Math.cos(car.a)*car.speed*dt,1.6,true);
+      for(const w of carM.wheels)w.rotation.x+=car.speed*dt/0.45;
+      for(const s of carM.steers)s.rotation.y=-steerSm*0.45;
+      carM.body.rotation.z+=(steerSm*clamp(Math.abs(car.speed)/30,0,1)*0.08-carM.body.rotation.z)*Math.min(1,dt*8);
+      $('spd').textContent=Math.round(Math.abs(car.speed)*2.2);
+      $('modeTxt').textContent='DRIVING';
+    }else{
+      // on foot: always jogging forward, tilt weaves, hold = sprint
+      const target=go?7.0:3.0;
+      cop.speed+=(target-cop.speed)*Math.min(1,dt*6);
+      cop.a-=steerSm*3.6*dt;
+      [cop.x,cop.z]=collide(
+        cop.x+Math.sin(cop.a)*cop.speed*dt,
+        cop.z+Math.cos(cop.a)*cop.speed*dt,0.45);
+      copM.position.set(cop.x,Math.abs(Math.sin(t*10))*0.07,cop.z);
+      copM.rotation.y=cop.a;
+      $('spd').textContent=Math.round(cop.speed*2.2);
+      $('modeTxt').textContent=go?'SPRINTING':'ON FOOT';
+    }
+
+    updateCrook(dt,now);
+    updateActBtn();
+
+    /* dispatch tracker — arrow to the crook, rotated into camera space */
+    {
+      const me=mode==='drive'?car:cop;
+      const cd=Math.hypot(crook.x-me.x,crook.z-me.z);
+      relV.set(crook.x-me.x,0,crook.z-me.z)
+        .applyQuaternion(camQ.copy(camera.quaternion).invert());
+      $('carr').style.transform='rotate('+Math.atan2(relV.x,-relV.z)+'rad)';
+      $('cdist').textContent=crook.state==='cuffed'?'✓':Math.round(cd)+'m';
+    }
+
+    /* meter + debug */
+    $('mraw').style.left='calc(50% + '+(steerRaw*46)+'%)';
+    $('msm').style.left='calc(50% + '+(steerSm*46)+'%)';
+    updateDebug(now);
+  }
+
+  /* transforms */
+  carM.g.position.set(car.x,0,car.z); carM.g.rotation.y=car.a;
+  blobM.position.x=car.x; blobM.position.z=car.z;
+  crookM.position.set(crook.x,0,crook.z); crookM.rotation.y=crook.a;
+
+  alertS.visible=(crook.state==='flee');
+  alertS.position.set(crook.x,2.7+Math.sin(t*6)*0.12,crook.z);
+  const cuffed=(crook.state==='cuffed');
+  for(let i=0;i<3;i++){
+    stars[i].visible=cuffed;
+    if(cuffed){
+      const a=t*4+i*Math.PI*2/3;
+      stars[i].position.set(crook.x+Math.cos(a)*0.5,2.1,crook.z+Math.sin(a)*0.5);
+    }
+  }
+  if(cuffed)crookM.rotation.z=0.35;
+
+  /* lights */
+  const flash=Math.floor(t*2)%2;
+  carM.matR.emissiveIntensity=flash?1:0.08;
+  carM.matB.emissiveIntensity=flash?0.08:1;
+
+  /* camera follows the active character */
+  const fx=mode==='drive'?car:cop;
+  const dist=mode==='drive'?15:8.5, h=mode==='drive'?7.5:4.4;
+  camPos.lerp(new THREE.Vector3(
+    fx.x-Math.sin(fx.a)*dist, h, fx.z-Math.cos(fx.a)*dist), 1-Math.exp(-4*dt));
+  camera.position.copy(camPos);
+  camera.lookAt(fx.x,1.6,fx.z);
+  renderer.render(scene,camera);
+}
+tick();
+</script>
+</body>
+</html>
