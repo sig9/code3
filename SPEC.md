@@ -223,6 +223,18 @@ learning-across-runs AI · co-op. All preserved above as the roadmap.
   never an invisible clamp in front of visible open space — the knee-high fence
   with grass beyond it made the boundary feel like a bug.
 
+## Status (2026-08-26) — v0.2 "District"
+- District map shipped: 4×3 blocks on a street grid, tall perimeter walls (edges
+  read as edges), two bollarded alleys, a hedged park (foot-only, 4 gated paths),
+  a plaza with fountain, varied building skylines.
+- **Chases are now losable**: 3 subway escape points (green beacons); alerted
+  crooks BFS-pathfind through the street/alley/park graph to the safest subway,
+  avoiding nodes near the player — cut them off or they're gone (💨 counter).
+- Dispatch tracker upgraded: points to your car after a bust/escape when on foot.
+- Verified via Node logic harness (graph connectivity, flee-to-escape sim,
+  200-tick run) — Playwright/Chrome were wedged this session.
+- Next: jail run (drive the cuffed crook to the station, escape meter).
+
 ## Status (2026-08-23)
 - [x] Tilt academy artifact recovered → `tilt-academy.html` (tuning/debug testbed).
 - [x] Initial sketch NOT recovered — rebuilt instead: `index.html` = **Chase One**,
