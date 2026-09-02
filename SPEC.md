@@ -13,7 +13,7 @@ game is an arms race against criminals who react, deceive, and learn.
 ## Controls (letter-key scheme)
 - **Space** — get out of the car (instant dismount from bike).
 - **H** — handcuff.
-- **S** — siren: clears traffic so you drive faster, but smart crooks hear it and
+- **L** — siren: clears traffic so you drive faster, but smart crooks hear it and
   scatter/hide before you arrive. Every chase is a speed-vs-stealth choice.
 - **T** — taser (see below).
 - One button sends the dog partner to hold a crook.
@@ -114,6 +114,30 @@ Same chase-and-cuff loop; tools evolve, and crook tech evolves too (arms race).
 
 Dog partner in every era: bloodhound (Old West) → German shepherd (today) → robo-dog
 (SWAT).
+
+## Badges (profiles) — decided 2026-09-02 with the co-designer
+A **badge** is a player profile on a phone: a name, a chosen officer look, and the career
+(stars, rank, bookings, escapes, slips). Several badges per phone, so kids sharing a phone
+stop overwriting each other. Rulings:
+- **Skill stays with the badge.** Stars and rank belong to the badge, not to an era or a map.
+- **Era hopping per badge is fine.** A badge can play any unlocked era and keeps its rank;
+  the era is where the badge is playing today, not part of who it is. Era unlocks hang off
+  the badge's rank (the rank ladder doubles as era unlocks, as planned).
+- **Scope now (decided 2026-09-02): one officer look.** A badge is a name plus a career;
+  the character builder below is roadmap, not next.
+- Later — the look is cheap on purpose and built from parts, not a gender toggle: hair (short,
+  ponytail, bun, buzz), face (moustache, glasses, none), uniform/hat/skin colours. Male and
+  female officers both come out of the same box parts; a kid assembles whoever they want.
+  The crook stays stripes-and-beanie so he reads at distance.
+- Later — badge art grows with rank on the start screen (Cadet → Sergeant), giving the ladder
+  something visible to do.
+- One extra screen before the countdown; no new touchables in play (budget stays 2–3).
+- **Shipped 2026-09-02 (v0.3.1): badge number entry.** Start screen has a Badge # field (numeric
+  keypad on phones) with the recent badges as tappable chips; blank = a new 4-digit badge is
+  minted. Career is stored per badge (`code3.career.<n>`, list in `code3.badges`); the first
+  badge on a phone adopts the old single v0.3 career. Settings gains "Change badge"; "Reset
+  career" resets only the current badge. Still per phone and per web address; a typed "badge
+  code" to carry a badge between phones stays backend-free and is not built.
 
 ## Academy training level (= tutorial + time-trial mode)
 - Cone slalom to learn driving; gate-to-gate lap timer.
@@ -222,6 +246,108 @@ learning-across-runs AI · co-op. All preserved above as the roadmap.
 - **Design rule learned:** map edges must read as edges (buildings/river/barrier),
   never an invisible clamp in front of visible open space — the knee-high fence
   with grass beyond it made the boundary feel like a bug.
+
+## Playtest #2 — 2026-09-01, desktop keys via Playwright (Claude)
+Three chases on v0.2 "District", keyboard only: 2 busts, 1 escape. Findings verified
+in the running game, not inferred from the code.
+- **Subway overshoot** (escape unreachable): `repath()` re-ran every 2.5 s from the
+  nearest node; once the goal subway *was* the nearest node the path collapsed to
+  `[goal]`, steering stopped, and the crook ran through the entrance and pinned on
+  the perimeter wall still "fleeing". Deterministic repro: crook at (98,28) heading
+  +x with path=[18], pi=1 is at x=117.5 two seconds later.
+- **Crook runs at the cop**: the router picked the subway with the fewest nodes and
+  only skipped nodes within 14 m of the threat. On 56 m blocks a cop mid-block is
+  never within 14 m of a node, so both busts were the crook sprinting straight into
+  the cruiser (path -112,84 > -56,84 > 0,84 through a cruiser at (-84,84)); a 1.5 s
+  "chase".
+- **Cop cannot stop on foot**: foot mode jogged at 3.0 m/s with no input (the
+  touch-scheme "always moving" rule leaked into keys). After a cuff the cop walked
+  40 m off, camera staring at a wall, through the 2.5 s celebration.
+- **Cruiser not solid**: neither cop nor crook collided with the parked car, so
+  roadblocks did nothing.
+- **Speedometer while wedged**: car wedged between the subway kiosk collider and a
+  building corner read 75 mph while stationary — the HUD showed `car.speed`, not
+  motion.
+- Nit: favicon.ico 404 in the console.
+- **What worked (keep):** tracker chip with rotating arrow + distance; subway
+  beacons; the "He's almost at the subway" warning (~4 s before arrival on a
+  one-block dash); bollarded alleys and the hedged park read at a glance; perimeter
+  walls read as edges; stamina (6 s sprint at 7.0 m/s, then 3.4 m/s while
+  recovering at 1.1/s) made the foot chase winnable.
+
+## Status (2026-09-01) — v0.3
+All five playtest-#2 bugs fixed at the root, plus build-order steps 2 and 3 (crook
+reactions, taser, siren, jail run, scoring). Still one self-contained `index.html`
+(Three.js r128). Verified by the Node harness (`node --test test/*.test.mjs`, 81
+tests passing) and headless Chrome over CDP at phone widths; **no real-phone run yet**.
+
+**Shipped**
+- Router rewrite: Dijkstra over the street/alley/park graph with a threat-cost
+  field. Legs the cop/cruiser can reach first are poisoned, the crook's own first
+  leg is judged from 2 m ahead of him, and a cornered crook takes the least-bad
+  route away from the threat rather than through it. Subway arrival is checked on
+  position alone (no more overshoot). Goal hysteresis so he commits to a subway.
+- Legible crook reactions, all with HUD state text: `heard you!` (0.4 s startle;
+  with a moving car he dives out of its line, eyes on the car; on foot it is a
+  0.15 s flinch), `doubling back` (dead stop, then turn; never twice within 5 s under
+  a rammer), look-back glance every ~3 s with a `!` pop, `sneaking` + `?` when he
+  loses you, `tired`, `spooked!` (faster after a taser miss), `staggered!` + stars
+  when clipped by the car at speed. Fleeing crooks run the sidewalk 4 m off the
+  centre line when a car is the threat.
+- Cruiser is solid for people (capsule collider; a car at speed sheds a person
+  sideways instead of carrying him on the nose).
+- Cop on foot stops with no input on keys (touch keeps the always-jogging rule).
+  Speedometer shows measured motion, not commanded speed.
+- **Taser (T / TAZE button)**: 3 charges (⚡ pips), ~8 m, ±30° resolve cone, click
+  telegraph, crook juke; hit = `tased ⚡` 3 s and cuffable. The TAZE button fades in
+  only in range with hysteresis so it does not flicker.
+- **Siren (L / SIREN pill)**: 42 vs 34 m/s top speed, hearing radius a full block,
+  🚨 leads the score chip; turning it off bleeds speed instead of dumping it.
+- **Jail run + scoring**: Precinct 3 station with a booking bay (blue beacon).
+  Cuff → 2.5 s cuff beat → `in custody` (he trails you on foot, ENTER seats him) →
+  drive to the bay, stop, BOOK. Escape meter fills while he is left on foot, in a
+  stopped car, or with the cop out of the car; full = `slipped the cuffs!` (3 s
+  immune, then he runs). 3 stars per bust (cuff / par 45 s from first alert / no
+  paperwork = no crashes), ranks CADET → OFFICER → DETECTIVE → SERGEANT, career in
+  localStorage with a Reset in settings.
+- HUD: score chip re-laid out for 360 px phones (nothing clipped at 360/375/390/412),
+  tracker points to Station while he is aboard; favicon is an inline SVG (no 404).
+- Mobile budget kept: GO + one context button (EXIT/ENTER/CUFF/BOOK) + one tool
+  slot (TAZE on foot, SIREN in the car) = 3 in-play touchables, thumb reach.
+
+**Default design rulings (decided solo, pending co-designer veto)**
+- A crook who sees the cop in his path doubles back or cuts through an alley/park;
+  he never runs at the cop when any alternative exists (a cornered crook takes the
+  least-bad route *away*).
+- The cruiser is solid for people — parked, it is a roadblock.
+- The officer freezes for the cuff beat (2.5 s, `CUFFING`), then the jail run begins.
+- Smaller calls made while building, all reversible: the alert is a startle-dive
+  out of a moving car's line rather than a dead-still freeze; a clip at speed
+  staggers the crook 0.6 s and costs the player nothing; escape-meter rates
+  (0.04/s escorted on foot, 0.25/s left in a stopped car or on foot, holds in the
+  bay, drains above 8 m/s).
+
+**Open questions for the co-designer**
+1. **Ramming policy.** Ramming is now the fastest route to a cuff (~13 s vs ~20 s
+   clean) and costs nothing — should a clip cost paperwork / a star, spook the crook
+   into a burst instead of a stagger, or is ramming intended play?
+2. **Escape-meter feel.** The meter is not reset on ENTER, so a long foot escort can
+   slip him under a second after he is seated; and rolling into the bay above 3 m/s
+   offers EXIT, not BOOK, so a mashed button loses the bust. Grace period on ENTER
+   and/or BOOK preferred in the bay — or keep it strict?
+3. **Par clock after a slip.** A never-alerted (sneaked-up) crook keeps the par star
+   however long the post-slip chase runs. Start the par clock at the slip, or leave
+   "never alerted = par met"?
+
+**Known gaps (honest list)**: no real-phone run of v0.3 (tilt, haptics, iOS audio,
+thumb reach all unverified on hardware); the look-back glance is invisible on the
+model (featureless head — only the `!` pop shows); wedge recovery is ~0.4 s slower
+than v0.2 by design (spec'd hover); a slip beside a wall can drop him inside the car
+capsule for a frame; parking next to a subway makes a slip an instant escape;
+`test/` is untracked until the baseline is committed.
+
+**Next**: phone test over a tunnel — tilt plus the new buttons (TAZE, SIREN, BOOK)
+at real thumb reach; then the academy wrapper (build-order step 4).
 
 ## Status (2026-08-26) — v0.2 "District"
 - District map shipped: 4×3 blocks on a street grid, tall perimeter walls (edges

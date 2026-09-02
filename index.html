@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>CODE 3 — District Chase</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='52' font-size='52'%3E%F0%9F%9A%94%3C/text%3E%3C/svg%3E">
 <style>
   :root{
     --panel: rgba(12,16,24,.62);
@@ -24,13 +25,23 @@
     pointer-events:none;z-index:5;gap:8px;}
   .chip{background:var(--panel);border:1px solid var(--line);border-radius:14px;
     padding:8px 12px;color:#eef3fa;font-size:13.5px;line-height:1.3;backdrop-filter:blur(6px);}
+  /* the score chip: line 1 (🚨 busts · escapes · mode) never wraps; line 2 (speed · ⚡ pips) is one unit and the
+     crook state may drop to a third line on narrow phones rather than being clipped — placeMsg() keeps the toast below */
+  #score{white-space:nowrap;flex:0 1 auto;min-width:0;overflow:hidden;padding:8px 9px;font-size:12.5px;}
+  #hud>div:last-child{flex:none;}                     /* tracker + gear never shrink */
   #score b{color:var(--amber);font-variant-numeric:tabular-nums;}
+  #l2{font-size:11.5px;color:#aebacb;white-space:normal;}
+  #l2 .nw{white-space:nowrap;}
+  @media (max-width:400px){                           /* 360-px Android: drop the "Crook" label, tighten the gear */
+    #tlab{display:none;} #track{padding:8px 8px !important;} #gear{padding:8px 9px;} #hud{gap:6px;padding-left:10px;padding-right:10px;}
+  }
+  #pips{letter-spacing:-.06em;}
   #esc{color:#ff8d8d;font-variant-numeric:tabular-nums;}
   #modeTxt{color:var(--blue);font-weight:700;}
   #gear{pointer-events:auto;border:1px solid var(--line);background:var(--panel);
     color:#eef3fa;border-radius:14px;font-size:18px;padding:8px 12px;}
 
-  #msg{position:fixed;top:calc(64px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);
+  #msg{position:fixed;top:calc(74px + env(safe-area-inset-top));   /* below the HUD; placeMsg() re-measures */left:50%;transform:translateX(-50%);
     background:var(--panel);border:1px solid var(--line);color:#fff;border-radius:12px;
     padding:8px 14px;font-size:14px;opacity:0;transition:opacity .18s;z-index:6;
     pointer-events:none;max-width:88vw;text-align:center;}
@@ -57,6 +68,45 @@
   #bAct.cuff{border-color:var(--green);background:rgba(30,110,60,.55);}
   #bAct.off{opacity:.35;}
   #bAct:active{transform:scale(.94);}
+  /* tool slot above #bAct, same x-centre (64 px): TAZE on foot, SIREN in the car — never both */
+  #bTaze{position:fixed;left:26px;bottom:calc(132px + env(safe-area-inset-bottom));
+    width:76px;height:76px;border-radius:50%;background:rgba(122,90,20,.55);
+    border:2px solid var(--amber);color:#fff;font-size:15px;font-weight:800;letter-spacing:.04em;
+    z-index:7;backdrop-filter:blur(6px);transition:opacity .15s,visibility .15s;}
+  #bTaze:active{transform:scale(.94);}
+  #bSiren{position:fixed;left:22px;bottom:calc(132px + env(safe-area-inset-bottom));
+    width:84px;height:40px;border-radius:20px;background:var(--panel);
+    border:2px solid var(--line);color:#fff;font-size:12px;font-weight:800;letter-spacing:.04em;
+    z-index:7;backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;gap:6px;
+    padding:0;transition:opacity .15s,visibility .15s;}
+  #bSiren .dot{width:10px;height:10px;border-radius:50%;flex:none;
+    background:linear-gradient(90deg,var(--red) 50%,var(--blue) 50%);}
+  #bSiren.on{animation:sirenB .3s steps(1) infinite;}
+  #bSiren:active{transform:scale(.94);}
+  @keyframes sirenB{0%{border-color:var(--red)}50%{border-color:var(--blue)}}
+  .hide{opacity:0;visibility:hidden;pointer-events:none;}   /* taps fall through — even mid-fade */
+  #c3{display:none;margin-right:4px;} #c3.on{display:inline;animation:pulse .5s ease-in-out infinite alternate;}
+  @keyframes pulse{from{opacity:.3}to{opacity:1}}
+  #cstars,#rank{color:var(--amber);font-weight:700;}
+  /* escape meter (line 4 of the score chip) — only while a crook is in custody */
+  #cline{display:none;font-size:11.5px;color:#aebacb;margin-top:3px;white-space:nowrap;}
+  #cline.on{display:block;}
+  #cbar{display:inline-block;width:92px;height:9px;background:rgba(255,255,255,.12);border:1px solid var(--line);
+    border-radius:5px;vertical-align:middle;overflow:hidden;}
+  #cfill{display:block;height:100%;width:0;background:var(--green);border-radius:4px;transition:width .1s linear;}
+  #cfill.warn{background:var(--amber);}
+  #cfill.hot{background:var(--red);animation:pulse .3s ease-in-out infinite alternate;}
+  #cpct{font-variant-numeric:tabular-nums;}
+  /* BOOKED card — 2 s beat after a booking */
+  #card{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%) scale(.92);z-index:8;
+    background:rgba(12,16,24,.92);border:2px solid var(--green);border-radius:20px;padding:18px 28px;
+    color:#eef3fa;text-align:center;min-width:250px;max-width:88vw;opacity:0;visibility:hidden;
+    pointer-events:none;transition:opacity .2s,transform .2s,visibility .2s;backdrop-filter:blur(8px);}
+  #card.show{opacity:1;visibility:visible;transform:translate(-50%,-50%) scale(1);}
+  #cardH{font-size:26px;font-weight:800;letter-spacing:.06em;color:var(--green);}
+  #cardS{font-size:30px;color:var(--amber);margin:4px 0;letter-spacing:.18em;}
+  #cardL{font-size:13px;color:#aebacb;}
+  #cardR{font-size:12.5px;color:#8fa2bb;margin-top:6px;}
   #golab{position:fixed;right:16px;bottom:calc(46px + env(safe-area-inset-bottom));
     color:#aebacb;font-size:11.5px;z-index:5;pointer-events:none;background:var(--panel);
     border:1px solid var(--line);border-radius:10px;padding:6px 10px;}
@@ -83,7 +133,7 @@
     radial-gradient(120% 90% at 50% 0%, #172438 0%, #0b1017 62%);
     display:flex;flex-direction:column;align-items:center;justify-content:center;
     color:#eef3fa;text-align:center;padding:24px;}
-  #overlay h1{margin:0;font-size:clamp(26px,7vw,46px);letter-spacing:.03em;font-weight:800;}
+  #overlay h1{margin:0;font-size:clamp(26px,7vw,46px);letter-spacing:.03em;font-weight:800;margin-top:auto;}
   #overlay h1 span{color:var(--amber);}
   #overlay p.sub{margin:10px 0 6px;color:#aebacb;font-size:15px;max-width:340px;}
   #overlay .how{margin:14px 0 4px;background:var(--panel);border:1px solid var(--line);
@@ -93,8 +143,20 @@
     box-shadow:0 4px 0 rgba(0,0,0,.35);}
   #bigStart:active{transform:translateY(2px);box-shadow:0 2px 0 rgba(0,0,0,.35);}
   #alt{margin-top:14px;color:#8fa2bb;font-size:13px;text-decoration:underline;background:none;border:none;}
+  #badgeRow{margin:12px 0 2px;display:flex;flex-direction:column;align-items:center;gap:8px;}
+  #badgeRow label{font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:#aebacb;}
+  #badgeIn{width:170px;font-size:26px;font-weight:800;text-align:center;letter-spacing:.14em;
+    background:var(--panel);border:1px solid var(--line);color:#fff;border-radius:12px;padding:8px 10px;
+    font-family:inherit;font-variant-numeric:tabular-nums;touch-action:auto;user-select:text;-webkit-user-select:text;outline:none;}
+  #badgeIn:focus{border-color:var(--amber);}
+  #badgeIn::placeholder{color:#6d7e96;font-weight:600;letter-spacing:.02em;font-size:15px;}
+  #badges{display:none;flex-wrap:wrap;gap:6px;justify-content:center;max-width:min(88vw,360px);}
+  .bchip{background:var(--panel);border:1px solid var(--line);color:#eef3fa;border-radius:10px;padding:6px 10px;
+    font-size:13px;font-variant-numeric:tabular-nums;font-family:inherit;}
+  .bchip.on{border-color:var(--amber);color:var(--amber);}
   #cd{font-size:64px;font-weight:800;color:var(--amber);margin-top:10px;display:none;}
-  #note{margin-top:16px;color:#6d7e96;font-size:12px;max-width:320px;}
+  #note{margin-top:16px;color:#6d7e96;font-size:12px;max-width:320px;margin-bottom:auto;}
+  #overlay{justify-content:flex-start;overflow-y:auto;touch-action:pan-y;-webkit-overflow-scrolling:touch;}
   #credit{position:fixed;left:10px;bottom:calc(6px + env(safe-area-inset-bottom));color:#5c6b80;
     font-size:10px;z-index:5;pointer-events:none;}
 </style>
@@ -102,23 +164,28 @@
 <body>
 
 <div id="hud">
-  <div class="chip" id="score">🚔 <b id="busts">0</b> · 💨 <span id="esc">0</span> · <span id="modeTxt">DRIVING</span><br>
-    <span style="font-size:12px;color:#aebacb"><span id="spd">0</span> mph · crook: <span id="cstate">unaware</span></span></div>
+  <div class="chip" id="score"><span id="c3">🚨</span>🚔 <b id="busts">0</b> · 💨 <span id="esc">0</span> · <span id="modeTxt">DRIVING</span><br>
+    <span id="l2"><span class="nw"><span id="spd">0</span> mph · <span id="pips">⚡⚡⚡</span> ·</span> <span class="nw">★<span id="cstars">0</span> <span id="rank">CADET</span></span><br>
+    crook: <span id="cstate">unaware</span></span>
+    <span id="cline">🔒 <span id="cbar"><i id="cfill"></i></span> <span id="cpct">0%</span></span></div>
   <div style="display:flex;gap:8px;align-items:flex-start;">
-    <div class="chip" id="track" style="display:flex;align-items:center;gap:8px;">
+    <div class="chip" id="track" style="display:flex;align-items:center;gap:6px;padding:8px 10px;">
       <span id="tlab" style="font-size:11px;letter-spacing:.06em;color:#aebacb;text-transform:uppercase;">Crook</span>
       <span id="carr" style="display:inline-block;width:20px;height:20px;color:var(--red);font-size:18px;line-height:20px;text-align:center;">▲</span>
-      <span id="cdist" style="font-variant-numeric:tabular-nums;min-width:40px;text-align:right;">—</span>
+      <span id="cdist" style="font-variant-numeric:tabular-nums;min-width:34px;text-align:right;">—</span>
     </div>
     <button id="gear">⚙︎</button>
   </div>
 </div>
 <div id="msg"></div>
+<div id="card"><div id="cardH">BOOKED</div><div id="cardS">★ ★ ★</div><div id="cardL"></div><div id="cardR"></div></div>
 
 <div id="meter"><div class="mid"></div><div id="mraw"></div><div id="msm"></div></div>
 <div id="mlab">tilt steering</div>
 <div id="golab">HOLD RIGHT SIDE = GO</div>
 <button id="bAct" class="off">—</button>
+<button id="bTaze" class="hide">⚡ TAZE</button>
+<button id="bSiren" class="hide"><span class="dot"></span>SIREN</button>
 
 <div id="settings">
   <h3>TILT SETTINGS</h3>
@@ -132,26 +199,36 @@
     <button id="bRespawn">Respawn crook</button></div>
   <div class="row"><span>Sensor debug</span>
     <button class="tog" id="tDbg">off</button></div>
+  <div class="row"><span>Career<br><small id="carv" style="color:#8fa2bb"></small></span>
+    <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button id="bBadge">Change badge</button>
+    <button id="bReset">Reset career</button></span></div>
   <div id="debug"></div>
 </div>
 
 <div id="overlay">
   <h1>CODE <span>3</span></h1>
-  <p class="sub">District prototype v0.2 · cuff him before he reaches a subway</p>
+  <p class="sub">District prototype v0.3 · cuff him, then book him at Precinct 3</p>
   <div class="how">
     📱 <b>Tilt</b> to steer — car <i>and</i> on foot<br>
     👆 <b>Hold right side</b> = gas / sprint<br>
     🔘 Big button morphs: <b style="color:var(--amber)">EXIT</b> · <b>ENTER</b> · <b style="color:var(--green)">CUFF</b><br>
     👂 He hears your engine — 🚇 he'll bolt for a <b style="color:var(--green)">subway</b><br>
-    🚧 Alleys &amp; the park are foot-only. Cut him off!
+    🚧 Alleys &amp; the park are foot-only. Cut him off!<br>
+    ⚡ <b>TAZE</b> pops up when he's in range · 🚨 <b>SIREN</b>: faster, but everyone hears you<br>
+    🏢 Cuffed him? Drive him to the <b style="color:var(--blue)">station</b> — stop in the bay, tap <b style="color:var(--green)">BOOK</b>
+  </div>
+  <div id="badgeRow">
+    <label for="badgeIn">Badge #</label>
+    <input id="badgeIn" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" placeholder="new badge">
+    <div id="badges"></div>
   </div>
   <button id="bigStart">ENABLE TILT &amp; START</button>
   <button id="alt">no tilt — use touch / keys instead</button>
   <div id="cd"></div>
-  <div id="note">Desktop: arrows/WASD drive · SPACE = exit/enter · H = cuff.<br>
+  <div id="note">Desktop: arrows/WASD drive · SPACE = exit/enter · H = cuff / book · T = taser · L = siren.<br>
   iPhone will ask for motion access — tap Allow.</div>
 </div>
-<div id="credit">code 3 · district · prototype v0.2</div>
+<div id="credit">code 3 · district · prototype v0.3</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script id="game">
@@ -235,7 +312,7 @@ function nearestNode(x,z){
 
 /* --- block content generation --- */
 const TYPES=[ // [col][row]
-  ['alleyNS','build','build'],
+  ['alleyNS','station','build'],
   ['build','park','build'],
   ['plaza','build','alleyNS'],
   ['build','build','alleyEW'],
@@ -257,7 +334,7 @@ for(let c=0;c<4;c++)for(let r=0;r<3;r++){
     const alleyF=new THREE.Mesh(new THREE.PlaneGeometry(10,44),M(0x33363b));
     alleyF.rotation.x=-Math.PI/2; alleyF.position.set(cx,0.03,cz); scene.add(alleyF);
     for(const ez of[z1-0.8,z2+0.8])for(const ox of[-3,0,3])addBollard(cx+ox,ez);
-    const nS=addNode(cx,ZLINES[r]), nN=addNode(cx,ZLINES[r+1]), nM=addNode(cx,cz);
+    const nS=addNode(cx,ZLINES[r]), nN=addNode(cx,ZLINES[r+1]), nM=addNode(cx,cz,'alley');
     link(nS,nM); link(nM,nN);
     link(nS,IX[c+','+r]); link(nS,IX[(c+1)+','+r]);
     link(nN,IX[c+','+(r+1)]); link(nN,IX[(c+1)+','+(r+1)]);
@@ -267,7 +344,7 @@ for(let c=0;c<4;c++)for(let r=0;r<3;r++){
     const alleyF=new THREE.Mesh(new THREE.PlaneGeometry(44,10),M(0x33363b));
     alleyF.rotation.x=-Math.PI/2; alleyF.position.set(cx,0.03,cz); scene.add(alleyF);
     for(const ex of[x1-0.8,x2+0.8])for(const oz of[-3,0,3])addBollard(ex,cz+oz);
-    const nW=addNode(XLINES[c],cz), nE=addNode(XLINES[c+1],cz), nM=addNode(cx,cz);
+    const nW=addNode(XLINES[c],cz), nE=addNode(XLINES[c+1],cz), nM=addNode(cx,cz,'alley');
     link(nW,nM); link(nM,nE);
     link(nW,IX[c+','+r]); link(nW,IX[c+','+(r+1)]);
     link(nE,IX[(c+1)+','+r]); link(nE,IX[(c+1)+','+(r+1)]);
@@ -292,12 +369,24 @@ for(let c=0;c<4;c++)for(let r=0;r<3;r++){
       BOLLARDS.push({x:cx+tx,z:cz+tz,r:0.5});
     }
     const nN=addNode(cx,z1-0.5), nS=addNode(cx,z2+0.5),
-          nW=addNode(x1-0.5,cz), nE=addNode(x2+0.5,cz), nC=addNode(cx,cz);
+          nW=addNode(x1-0.5,cz), nE=addNode(x2+0.5,cz), nC=addNode(cx,cz,'park');
     link(nN,nC);link(nS,nC);link(nW,nC);link(nE,nC);
     link(nN,IX[c+','+r]); link(nN,IX[(c+1)+','+r]);
     link(nS,IX[c+','+(r+1)]); link(nS,IX[(c+1)+','+(r+1)]);
     link(nW,IX[c+','+r]); link(nW,IX[c+','+(r+1)]);
     link(nE,IX[(c+1)+','+r]); link(nE,IX[(c+1)+','+(r+1)]);
+  }else if(t==='station'){
+    /* Precinct 3 — fixed geometry, NO rand() calls (later 'build' splits stay put for a seed). The main
+       block sits back 8 m from the x=-56 street between two wings: a 20 m wide bay you nose the cruiser into */
+    addBox(-106,-70,-22,22,11,0x6f86b3);
+    addBox(-70,-62,-22,-10,8,0x5d739e); addBox(-70,-62,10,22,8,0x5d739e);
+    const bay=new THREE.Mesh(new THREE.PlaneGeometry(10,20),M(0x8a8f99));
+    bay.rotation.x=-Math.PI/2; bay.position.set(-65,0.03,0); scene.add(bay);
+    const stripe=new THREE.Mesh(new THREE.PlaneGeometry(0.4,20),M(0xffd23f));
+    stripe.rotation.x=-Math.PI/2; stripe.position.set(-60.2,0.04,0); scene.add(stripe);
+    const sign=new THREE.Mesh(new THREE.PlaneGeometry(8,2),new THREE.MeshBasicMaterial({map:policeDecal()}));
+    sign.position.set(-69.9,6,0); sign.rotation.y=Math.PI/2; scene.add(sign);
+    addBeam(-65,0,0x4da3ff);
   }else if(t==='plaza'){
     const pave=new THREE.Mesh(new THREE.PlaneGeometry(44,44),M(0x565a61));
     pave.rotation.x=-Math.PI/2; pave.position.set(cx,0.03,cz); scene.add(pave);
@@ -307,11 +396,21 @@ for(let c=0;c<4;c++)for(let r=0;r<3;r++){
       M(0x4da3ff,{emissive:0x1a3a66,emissiveIntensity:0.4}));
     water.position.set(cx,1.05,cz); scene.add(base,water);
     BOLLARDS.push({x:cx,z:cz,r:4.6});
-    const nC=addNode(cx,cz);
+    const nC=addNode(cx,cz,'plaza');
     link(nC,IX[c+','+r]); link(nC,IX[(c+1)+','+r]);
     link(nC,IX[c+','+(r+1)]); link(nC,IX[(c+1)+','+(r+1)]);
   }
 }
+
+/* --- beacons: a tall translucent column that reads from across the map (subways green, the station blue) --- */
+function addBeam(x,z,color){
+  const beam=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,26,8,1,true),
+    new THREE.MeshBasicMaterial({color,transparent:true,opacity:0.18,side:THREE.DoubleSide}));
+  beam.position.set(x,13,z); scene.add(beam);
+}
+/* --- Precinct 3 booking bay: 8 m recess + 2 m of the x=-56 street, so a curb park counts (car r 1.6 fits nose-in) --- */
+const STATION={x:-65,z:0}, BAY={x1:-70,x2:-60,z1:-10,z2:10};
+const inBay=(x,z)=>x>BAY.x1&&x<BAY.x2&&z>BAY.z1&&z<BAY.z2;
 
 /* --- subway escape points --- */
 const SUBWAYS=[];
@@ -329,12 +428,22 @@ function addSubway(i,j){
   const sign=new THREE.Mesh(new THREE.PlaneGeometry(4.6,1.7),
     new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(c),side:THREE.DoubleSide}));
   sign.position.set(kx,3.4,kz); scene.add(sign);
-  const beam=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,26,8,1,true),
-    new THREE.MeshBasicMaterial({color:0x5ee08a,transparent:true,opacity:0.18,side:THREE.DoubleSide}));
-  beam.position.set(kx,13,kz); scene.add(beam);
-  BOLLARDS.push({x:kx,z:kz,r:2});
+  addBeam(kx,kz,0x5ee08a);
+  // collider: a box flush with the two block faces behind the kiosk (not a circle) — a round collider
+  // 4 m off the corner met the building face at an angle that wedged the cruiser at every subway.
+  const sx=x<0?1:-1, sz=z<0?1:-1;
+  BUILDINGS.push({x1:Math.min(kx-sx*1.5,x+sx*6),x2:Math.max(kx-sx*1.5,x+sx*6),
+                  z1:Math.min(kz-sz*1.5,z+sz*6),z2:Math.max(kz-sz*1.5,z+sz*6)});
 }
 addSubway(0,0); addSubway(4,2); addSubway(2,3);
+
+/* --- undirected edge list for the router; foot = touches an alley/park node (cars can't) --- */
+const EDGES=[];                                  // {a,b,len,foot}
+for(let a=0;a<NODES.length;a++)for(const b of EDGE[a])if(a<b){
+  const A=NODES[a],B=NODES[b], isFoot=t=>t==='alley'||t==='park';
+  EDGES.push({a,b,len:Math.hypot(A.x-B.x,A.z-B.z),foot:isFoot(A.tag)||isFoot(B.tag)});
+}
+const reachR=i=>NODES[i].tag==='plaza'?6:2.2;    // plaza node sits inside the r=4.6 fountain collider
 
 /* ============ collision ============ */
 function collide(px,pz,r){
@@ -358,6 +467,54 @@ function collide(px,pz,r){
     if(d2<rr*rr&&d2>1e-6){const d=Math.sqrt(d2); px=bo.x+dx/d*rr; pz=bo.z+dz/d*rr;}
   }
   return [clamp(px,-CLX+r,CLX-r), clamp(pz,-CLZ+r,CLZ-r)];
+}
+/* the cruiser as two circles (r 1.25) 1.35 m fore/aft of its centre; people are pushed out of the
+   capsule spanning them (one push, so the overlap wedge can't leave a residual penetration) */
+function carCircles(){
+  const fx=Math.sin(car.a),fz=Math.cos(car.a);
+  return [{x:car.x+fx*1.35,z:car.z+fz*1.35,r:1.25},{x:car.x-fx*1.35,z:car.z-fz*1.35,r:1.25}];
+}
+/* is a person of radius r at (px,pz) inside the cruiser's capsule? (the crook's stagger check) */
+function inCar(px,pz,r){
+  const [A,B]=carCircles(), rr=r+A.r, ex=B.x-A.x,ez=B.z-A.z,l2=ex*ex+ez*ez;
+  const t=clamp(((px-A.x)*ex+(pz-A.z)*ez)/l2,0,1);
+  return Math.hypot(px-A.x-t*ex,pz-A.z-t*ez)<rr;
+}
+function collidePerson(px,pz,r){
+  [px,pz]=collide(px,pz,r);
+  const [A,B]=carCircles(), rr=r+A.r;
+  const ex=B.x-A.x,ez=B.z-A.z,l2=ex*ex+ez*ez;
+  const t=clamp(((px-A.x)*ex+(pz-A.z)*ez)/l2,0,1), cx=A.x+t*ex, cz=A.z+t*ez;
+  const dx=px-cx,dz=pz-cz,d2=dx*dx+dz*dz;
+  if(d2<rr*rr){
+    let nx,nz;
+    if(d2>1e-6){const d=Math.sqrt(d2); nx=dx/d; nz=dz/d;}
+    else{nx=Math.cos(car.a); nz=-Math.sin(car.a);}              // dead centre: shove sideways
+    /* the capsule push must not shove anyone into a wall (a moving cruiser would push people
+       through the 1.2 m park hedge): walls again afterwards. Pinched between the car and a
+       wall, he squeezes out to the nearest spot on the capsule that the walls allow. */
+    const gap=([qx,qz])=>{const t2=clamp(((qx-A.x)*ex+(qz-A.z)*ez)/l2,0,1); return Math.hypot(qx-A.x-t2*ex,qz-A.z-t2*ez);};
+    /* a cruiser at speed sheds a person SIDEWAYS off its bumper: the radial push carried anyone in
+       front of it along the street on its nose (the overtake: 20 m down the road on the bumper) */
+    if(Math.abs(car.speed)>5){
+      const fx=Math.sin(car.a),fz=Math.cos(car.a),sx=-Math.cos(car.a),sz=Math.sin(car.a);   // forward, right
+      const lon=(px-car.x)*fx+(pz-car.z)*fz, lat=(px-car.x)*sx+(pz-car.z)*sz;
+      const over=Math.max(0,Math.abs(lon)-1.35), half=Math.sqrt(Math.max(0,rr*rr-over*over))+1e-6;
+      const side=lat>=0?1:-1, q=collide(car.x+fx*lon+sx*side*half,car.z+fz*lon+sz*side*half,r);
+      if(gap(q)>=rr-1e-9)return q;
+    }
+    const p1=collide(cx+nx*rr,cz+nz*rr,r);
+    if(gap(p1)>=rr-1e-9)return p1;
+    let best=p1,bd=Infinity;
+    for(const C of [{x:cx,z:cz},A,B])for(let k=1;k<=12;k++)for(const sg of (k===12?[1]:[1,-1])){
+      const th=sg*k*Math.PI/12, c=Math.cos(th), sn=Math.sin(th);
+      const qx=C.x+(nx*c-nz*sn)*rr,qz=C.z+(nx*sn+nz*c)*rr, q=collide(qx,qz,r);
+      if(Math.hypot(q[0]-qx,q[1]-qz)>1e-6||gap(q)<rr-1e-9)continue;   // must be free of walls as-is (no tunnelling)
+      const d=Math.hypot(q[0]-px,q[1]-pz); if(d<bd){bd=d;best=q;}
+    }
+    return best;                                     // boxed in on every side: stay wall-consistent
+  }
+  return [px,pz];
 }
 
 /* ============ police car ============ */
@@ -447,7 +604,12 @@ function textSprite(txt,color){
   s.scale.set(1.3,1.3,1); scene.add(s); s.visible=false;
   return s;
 }
-const alertS=textSprite('!','#ff4d4d');
+const alertS=textSprite('!','#ff4d4d');          // heard you (pops on alert)
+const glanceS=textSprite('!','#fff'); glanceS.scale.set(0.8,0.8,1);   // look-back glance
+const lostS=textSprite('?','#ffc857');           // lost you
+const boltMiss=new THREE.MeshBasicMaterial({color:0xffd23f}), boltHit=new THREE.MeshBasicMaterial({color:0xffffff});
+const boltM=new THREE.Mesh(new THREE.BoxGeometry(0.06,0.06,1),boltMiss);   // taser bolt, scaled cop→aim
+boltM.visible=false; scene.add(boltM);
 const stars=[];
 for(let i=0;i<3;i++){
   const s=new THREE.Mesh(new THREE.SphereGeometry(0.09,8,6),
@@ -456,13 +618,127 @@ for(let i=0;i<3;i++){
 }
 
 /* ============ entities ============ */
-const car={x:-100,z:-88,a:Math.PI/2,speed:0};   // parked SW perimeter street, facing +x
-const cop={x:0,z:0,a:0,speed:0};
+const car={x:-100,z:-88,a:Math.PI/2,speed:0,mv:0,mvRaw:0,mvPrev:0,wedged:false,contact:false};   // parked SW perimeter street, facing +x
+const cop={x:0,z:0,a:0,speed:0,mv:0,freezeUntil:0};   // freezeUntil: ms, the cuff beat holds him still; mv: measured m/s
+/* flee sub-modes live in fields, not states (all ms timestamps unless noted; every one reset in respawnCrook):
+   alertUntil 0.4 s freeze facing you · dbUntil 0.35 s dead stop before a double-back · popUntil '!' tell ·
+   glanceT next look-back · glanceUntil look-back tell · qUntil '?' tell · legT leg-hot check cadence ·
+   forcedT last forced replan · switchT last goal switch · holdPlan replan once when the alert hold ends ·
+   lostT s out of earshot · lost walks, regains stamina · dbCount double-backs · planHot least-bad route ·
+   hitUntil clipped by the cruiser: 0.6 s stagger · hitCount · revT last double-back (no second one within 5 s
+   under a moving car: no ping-pong) · burstUntil spooked by a taser miss: ×1.4 speed · tasedT tased at ·
+   juke {dx,dz,until} sidestep on the taser click · inCar (custody) seated in the cruiser · slipT slipped the cuffs at ·
+   bookedT booked at */
 const crook={x:0,z:0,a:0,speed:0,state:'calm',stam:6,tired:false,
-  path:null,pi:0,target:-1,cuffT:0,alerted:false,warned:false,repathT:0};
+  path:null,pi:0,target:-1,cuffT:0,alerted:false,warned:false,planHot:false,
+  alertUntil:0,dbUntil:0,popUntil:0,glanceT:0,glanceUntil:0,qUntil:0,legT:0,forcedT:0,switchT:0,
+  holdPlan:false,lostT:0,lost:false,dbCount:0,hitUntil:0,hitCount:0,revT:0,burstUntil:0,tasedT:0,juke:null,
+  inCar:false,slipT:0,bookedT:0};
 { const s=NODES[IX['4,3']]; crook.x=s.x; crook.z=s.z; }   // far NE corner
 let mode='drive';   // 'drive' | 'foot'
 let busts=0, escapes=0;
+
+/* ============ jail run + career ============
+   The cuff is the midpoint: walk him to the car, drive him to Precinct 3, stop in the bay, BOOK. The escape
+   meter fills while he is in custody and you dawdle; full = he slips the cuffs and a second chase starts.
+   Three stars per booking (cuff · par 45 s · no paperwork) accumulate into a rank kept in localStorage. */
+const run={active:false,meter:0,alertT:0,cuffT:0,paperwork:0,slips:0,said50:false,said80:false,saidBay:false,hitT:0};
+const RANKS=[['CADET',0],['OFFICER',6],['DETECTIVE',15],['SERGEANT',30]];
+function rankFor(s){let r='CADET';for(const[n,t]of RANKS)if(s>=t)r=n;return r;}
+function nextRank(s){for(const[n,t]of RANKS)if(s<t)return {n,t};return null;}
+/* badges: one career per badge number on this phone, so the kid, mom and dad each keep their own rank.
+   badge===null (no start screen, e.g. the harness) keeps the single v0.3 career under 'code3.career'. */
+let badge=null;
+function careerKey(){return badge?'code3.career.'+badge:'code3.career';}
+function loadBadges(){
+  try{const b=JSON.parse(localStorage.getItem('code3.badges'));
+    if(b&&Array.isArray(b.list))return {list:b.list.filter(x=>x&&typeof x.n==='string'),current:b.current||null};}catch(e){}
+  return {list:[],current:null};
+}
+function saveBadges(b){try{localStorage.setItem('code3.badges',JSON.stringify(b));}catch(e){}}
+function loadCareer(){
+  try{const c=JSON.parse(localStorage.getItem(careerKey()));
+    if(c&&typeof c.stars==='number')return Object.assign({stars:0,booked:0,escapes:0,slips:0},c);}catch(e){}
+  return {stars:0,booked:0,escapes:0,slips:0};
+}
+function saveCareer(){try{localStorage.setItem(careerKey(),JSON.stringify(career));}catch(e){}}
+const career=loadCareer();
+function newBadgeNumber(b){
+  let n; do{n=''+Math.floor(1000+Math.random()*9000);}while(b.list.some(x=>x.n===n)); return n;
+}
+function selectBadge(n){
+  n=String(n==null?'':n).replace(/\D/g,'').slice(0,6);
+  const b=loadBadges();
+  if(!n)n=newBadgeNumber(b);
+  const fresh=!b.list.some(x=>x.n===n);
+  badge=n;
+  let c=loadCareer();
+  if(fresh&&b.list.length===0){            // the first badge on this phone adopts the v0.3 single career
+    try{const old=JSON.parse(localStorage.getItem('code3.career'));
+      if(old&&typeof old.stars==='number')c=Object.assign({stars:0,booked:0,escapes:0,slips:0},old);}catch(e){}
+  }
+  for(const k of Object.keys(career))delete career[k];
+  Object.assign(career,c); saveCareer();
+  b.list=[{n,t:Date.now()}].concat(b.list.filter(x=>x.n!==n)).slice(0,8); b.current=n; saveBadges(b);
+  hudCareer();
+  return n;
+}
+function hudCareer(){
+  $('cstars').textContent=''+career.stars; $('rank').textContent=rankFor(career.stars);
+  $('carv').textContent=(badge?'#'+badge+' · ':'')+rankFor(career.stars)+' · '+career.stars+'★ · '+career.booked+' booked · '+career.escapes+' escaped';
+}
+hudCareer();
+/* par = alert → cuff (a never-alerted crook was sneaked up on: par met). 45 s: a worst-case straight run to a
+   subway is ~28 s, so 45 forgives one cut-off, not two. Style = zero paperwork (taser hits are not scored). */
+function scoreBooked(now){
+  const parS=run.alertT?(run.cuffT-run.alertT)/1000:0;
+  const par=parS<=45, style=run.paperwork===0, n=1+(par?1:0)+(style?1:0);
+  const before=rankFor(career.stars); career.stars+=n; career.booked++; saveCareer(); hudCareer();
+  return {n,par,style,parS,promoted:rankFor(career.stars)!==before};
+}
+const cap=w=>w[0]+w.slice(1).toLowerCase();
+function showCard(s){
+  const r=rankFor(career.stars), nx=nextRank(career.stars);
+  $('cardH').textContent=s.promoted?'PROMOTED → '+r:'BOOKED';
+  $('cardS').textContent=['★',s.par?'★':'☆',s.style?'★':'☆'].join(' ');
+  $('cardL').textContent='cuff ✓ · par '+Math.round(s.parS)+'s/45s '+(s.par?'✓':'✗')+' · paperwork '+run.paperwork+' '+(s.style?'✓':'✗');
+  $('cardR').textContent=r+' · '+career.stars+'★'+(nx?' · '+cap(nx.n)+' at '+nx.t:'');
+  $('card').classList.add('show');
+}
+/* he slips the cuffs: out of the car on the far side from the cop's door (or where he stands), 3 s
+   of 'slipped' (runs, not cuffable, not tazeable), then plain flee */
+function slip(now){
+  if(crook.inCar)[crook.x,crook.z]=collidePerson(car.x-Math.cos(car.a)*2.5,car.z+Math.sin(car.a)*2.5,0.45);
+  crook.state='slipped'; crook.slipT=now; crook.inCar=false;
+  run.slips++; career.slips++; saveCareer();
+  run.meter=0; run.active=false; run.said50=run.said80=run.saidBay=false; crook.warned=false;
+  crook.stam=6; crook.tired=false; crook.lost=false; crook.lostT=0; crook.speed=0;
+  crook.alertUntil=crook.dbUntil=crook.hitUntil=crook.burstUntil=0; crook.juke=null; crook.holdPlan=false;
+  crook.a=Math.atan2(crook.x-car.x,crook.z-car.z);
+  crook.path=null; crook.pi=0; crook.target=-1;               // never seed the plan from the pre-cuff path
+  plan(); crook.glanceT=now+rand(2500,3500); crook.legT=now;
+  say("💨 He slipped the cuffs — he's running!");
+}
+/* the escape meter, once per simulate(): fills on foot (25 s), fast with him left in the car or the car stopped
+   outside the bay (4 s), drains at speed (8 s full→empty), holds in the bay. Reads the MEASURED car.mv so a
+   wedged car with the gas held never drains it. */
+function updateRun(dt,now){
+  if(crook.state!=='custody'){run.active=false;}
+  else{
+    run.active=true;
+    const rate=!crook.inCar?0.04:mode==='foot'?0.25:inBay(car.x,car.z)?0:car.mv<3?0.25:car.mv>8?-0.12:0;
+    run.meter=clamp(run.meter+rate*dt,0,1);
+    if(run.meter>=0.5&&!run.said50){run.said50=true;say("🔓 He's squirming — keep moving!");}
+    if(run.meter>=0.8&&!run.said80){run.said80=true;say("🔓 He's nearly out of the cuffs!");}
+    if(run.meter>=1){slip(now);crookHud();}
+  }
+  $('cline').classList.toggle('on',run.active);
+  if(run.active){
+    const pct=Math.round(run.meter*100);
+    $('cfill').style.width=pct+'%'; $('cpct').textContent=pct+'%';
+    $('cfill').className=pct>=80?'hot':pct>=50?'warn':'';
+  }
+}
 
 /* ============ tilt system ============ */
 const tilt={
@@ -540,7 +816,13 @@ function computeSteer(dt){
 /* ============ messages ============ */
 let started=false;
 const msgEl=$('msg'); let msgT=0;
-function say(t,ms){ msgEl.textContent=t; msgEl.classList.add('show');
+/* the toast sits just under the HUD, whatever the chips wrap to — it must never cover the ⚡ pips / crook state */
+function placeMsg(){
+  const r=$('hud').getBoundingClientRect&&$('hud').getBoundingClientRect(); if(!r||!r.height)return;
+  msgEl.style.top=Math.round(r.bottom+8)+'px';
+}
+addEventListener('resize',placeMsg);
+function say(t,ms){ placeMsg(); msgEl.textContent=t; msgEl.classList.add('show');
   clearTimeout(msgT); msgT=setTimeout(()=>msgEl.classList.remove('show'),ms||2400); }
 
 /* ============ context action ============ */
@@ -548,12 +830,14 @@ const bAct=$('bAct');
 function affordance(){
   if(!started)return null;
   if(mode==='foot'){
-    if(crook.state==='flee'||crook.state==='calm'){
+    if(performance.now()<cop.freezeUntil)return null;   // the cuff beat holds the camera on the pair
+    if(crook.state==='flee'||crook.state==='calm'||crook.state==='tased'){
       if(Math.hypot(cop.x-crook.x,cop.z-crook.z)<2.6)return 'cuff';
     }
-    if(Math.hypot(cop.x-car.x,cop.z-car.z)<3.5)return 'enter';
+    if(crook.state!=='cuffed'&&Math.hypot(cop.x-car.x,cop.z-car.z)<3.5)return 'enter';
     return null;
   }
+  if(crook.state==='custody'&&crook.inCar&&inBay(car.x,car.z)&&car.mv<3)return 'book';
   if(Math.abs(car.speed)<8)return 'exit';
   return 'slow';
 }
@@ -561,19 +845,26 @@ function doAction(){
   const a=affordance();
   if(a==='cuff'){
     crook.state='cuffed'; crook.cuffT=performance.now();
+    cop.freezeUntil=crook.cuffT+2500;              // the cuff beat: cop stands over him
     busts++; $('busts').textContent=busts;
     say('🚔 CUFFED! Nice work, officer.');
+  }else if(a==='book'){
+    crook.state='booked'; crook.bookedT=performance.now(); run.active=false;
+    showCard(scoreBooked(crook.bookedT)); vib([30,30,30]);
   }else if(a==='enter'){
     mode='drive'; copM.visible=false;
-    say('Back in the cruiser');
-  }else if(a==='exit'){
-    mode='foot';
+    if(crook.state==='custody'){crook.inCar=true; say('Back in the cruiser — drive him to the station');}
+    else say('Back in the cruiser');
+    if(crook.state==='flee'||crook.state==='slipped')plan();   // the threat changed shape: re-plan
+  }else if(a==='exit'){                              // in custody he stays in the car (inCar): the meter runs at 0.25/s
+    mode='foot'; siren.on=false;                     // dismount = go quiet
     car.speed*=0.2;
     const sx=Math.cos(car.a), sz=-Math.sin(car.a);
-    [cop.x,cop.z]=collide(car.x+sx*2.2,car.z+sz*2.2,0.45);
+    [cop.x,cop.z]=collidePerson(car.x+sx*2.2,car.z+sz*2.2,0.45);
     cop.a=car.a; cop.speed=0;
     copM.visible=true;
-    say('On foot — tilt to weave, hold right side to sprint');
+    say(crook.state==='custody'&&crook.inCar?'He is in the back — do not leave him long':'On foot — tilt to weave, hold right side to sprint');
+    if(crook.state==='flee'||crook.state==='slipped')plan();
   }else if(a==='slow'){
     say('Too fast — slow down to jump out');
   }
@@ -582,25 +873,128 @@ function updateActBtn(){
   const a=affordance();
   bAct.className='';
   if(a==='cuff'){bAct.textContent='CUFF'; bAct.classList.add('cuff');}
+  else if(a==='book'){bAct.textContent='BOOK'; bAct.classList.add('cuff');}
   else if(a==='enter'){bAct.textContent='ENTER'; bAct.classList.add('hot');}
   else if(a==='exit'){bAct.textContent='EXIT'; bAct.classList.add('hot');}
   else if(a==='slow'){bAct.textContent='EXIT'; bAct.classList.add('off');}
   else {bAct.textContent='—'; bAct.classList.add('off');}
+  /* the tool slot: TAZE only with him in the cone (foot), SIREN only in the car — never both */
+  bTaze.classList.toggle('hide',!tazeOK());
+  bSiren.classList.toggle('hide',mode!=='drive'||!started);
+  bSiren.classList.toggle('on',siren.on);
+  $('c3').classList.toggle('on',siren.on);
+  $('pips').textContent='⚡'.repeat(taze.charges)+'○'.repeat(3-taze.charges);
 }
-bAct.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();doAction();});
+bAct.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();if(e.pointerType!=='mouse')inputKind='touch';doAction();});
+
+/* ============ taser + siren ============
+   The taser is a window-maker, not a win button: an audible click, a lead on his heading, a 0.35 s flight
+   during which a fresh crook jukes 70 % of the time; a hit = 3 s slow and cuffable; a miss spooks him
+   (×1.4 for 2 s). Three charges per crook. The siren is speed-vs-stealth: a faster cruiser, and everyone
+   within a block (70 m) hears you. */
+const taze={charges:3,phase:'idle',t0:0,ax:0,az:0,hit:false,okT:-1e9};   // phase: idle | click (0.35 s flight) | flash (to t0+0.75 s); okT: last time tazeOK held
+const TAZE_R=10.5;                                        // resolve radius: 8 m show range + 7 m/s × 0.35 s of running away
+const siren={on:false};
+const wrapPi=a=>{while(a>Math.PI)a-=2*Math.PI;while(a<-Math.PI)a+=2*Math.PI;return a;};
+const vib=x=>{ try{                                       // Chrome logs an error if vibrate() runs before a real tap/keypress
+  const ua=navigator.userActivation, active=ua?ua.hasBeenActive:inputKind==='touch';
+  if(navigator.vibrate&&active)navigator.vibrate(x);
+}catch(e){} };
+let ac=null;
+function clickBlip(){                                    // 20 ms square blip — the tell he jukes on
+  const AC=window.AudioContext||window.webkitAudioContext; if(!AC)return;
+  try{
+    ac=ac||new AC();
+    const o=ac.createOscillator(),g=ac.createGain(); o.type='square'; o.frequency.value=1800; g.gain.value=0.12;
+    o.connect(g); g.connect(ac.destination); const t=ac.currentTime; o.start(t); o.stop(t+0.02);
+  }catch(e){}
+}
+/* hysteresis so the button does not flicker while a tilt-steered cop's heading wanders: it appears inside ±17.5° / 8 m
+   and stays up to ±25° / 8.6 m (still inside the ±30° resolve cone) and for 250 ms after it last held */
+function tazeOK(){
+  const ok=tazeOKRaw(); if(ok)taze.okT=performance.now(); return ok;
+}
+function tazeOKRaw(){
+  if(!started||mode!=='foot'||taze.charges<=0||taze.phase!=='idle')return false;
+  if(crook.state!=='flee'&&crook.state!=='calm')return false;
+  const held=performance.now()-taze.okT<250, cone=held?0.44:0.305, dmax=held?8.6:8;
+  const dx=crook.x-cop.x,dz=crook.z-cop.z,d=Math.hypot(dx,dz); if(d<2.6||d>dmax)return false;   // <2.6: CUFF wins
+  const rv=Math.max(0,(Math.sin(crook.a)*dx+Math.cos(crook.a)*dz)/d*crook.speed);           // receding speed
+  if(d+rv*0.35>TAZE_R+(held?0.6:0))return false;         // a standing cop could not land it: no green button
+  return Math.abs(wrapPi(Math.atan2(dx,dz)-cop.a))<cone;
+}
+/* roll: tests force juke / no-juke without touching Math.random; keys and buttons pass nothing */
+function fireTaze(now,roll){
+  if(!tazeOK())return false;
+  taze.charges--; taze.phase='click'; taze.t0=now; taze.hit=false; vib(15); clickBlip();
+  taze.ax=crook.x+Math.sin(crook.a)*crook.speed*0.35; taze.az=crook.z+Math.cos(crook.a)*crook.speed*0.35;  // lead
+  let p=crook.state==='calm'?0:crook.tired?0.25:0.70; if(now<crook.burstUntil)p=0.5;
+  if(Math.hypot(crook.x-cop.x,crook.z-cop.z)<4)p*=0.5;
+  if((roll===undefined?Math.random():roll)<p)startJuke(now);
+  return true;
+}
+/* sidestep ⟂ to the cop's line of sight, random side first; a side is valid when 2.8 m that way is clear */
+function startJuke(now){
+  const dx=crook.x-cop.x,dz=crook.z-cop.z,d=Math.hypot(dx,dz)||1, lx=-dz/d,lz=dx/d;
+  const first=Math.random()<0.5?1:-1;
+  for(const sg of [first,-first]){
+    const px=crook.x+lx*sg*2.8,pz=crook.z+lz*sg*2.8, q=collidePerson(px,pz,0.45);
+    if(Math.hypot(q[0]-px,q[1]-pz)<0.3){crook.juke={dx:lx*sg,dz:lz*sg,until:now+350};return true;}
+  }
+  return false;
+}
+function resolveTaze(now){
+  if(taze.phase==='click'&&now-taze.t0>=350){
+    const dx=crook.x-cop.x,dz=crook.z-cop.z,d=Math.hypot(dx,dz);
+    const off=Math.hypot(crook.x-taze.ax,crook.z-taze.az), bearing=Math.abs(wrapPi(Math.atan2(dx,dz)-cop.a));
+    const live=crook.state==='flee'||crook.state==='calm';   // cuffed / escaped mid-flight: nothing to hit or spook
+    const hit=live&&d<TAZE_R&&off<1.9&&bearing<0.52;           // ±30° resolve cone
+    taze.hit=hit;
+    if(hit){
+      crook.state='tased'; crook.tasedT=now; crook.juke=null; crook.lost=false; crook.lostT=0;
+      say("⚡ ZAP! He's down — cuff him!"); vib([30,50,30]);
+    }else if(live){
+      crook.burstUntil=now+2000;
+      say(crook.juke?"⚡ Missed — he juked! Now he's spooked":"⚡ Missed — he's spooked and faster"); vib(60);
+    }
+    taze.phase='flash';
+  }
+  if(taze.phase==='flash'&&now-taze.t0>=750){
+    taze.phase='idle';
+    if(taze.charges===0&&!taze.hit)say("Taser's empty — run him down",3000);   // after a hit it waits for him to get up
+  }
+}
+function toggleSiren(){
+  if(!started||mode!=='drive')return false;
+  siren.on=!siren.on; vib(20);
+  say(siren.on?'🚨 Sirens! Everyone within a block heard you':'Siren off — quiet approach',3000);
+  return true;
+}
+const bTaze=$('bTaze'), bSiren=$('bSiren');
+bTaze.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();if(e.pointerType!=='mouse')inputKind='touch';fireTaze(performance.now());});
+bSiren.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();if(e.pointerType!=='mouse')inputKind='touch';toggleSiren();});
 
 /* ============ input ============ */
+/* last input family used. On touch the cop always jogs (SPEC: "always moving forward");
+   on keys he stands still without input. No matchMedia — absent in the test harness. */
+let inputKind=(navigator.maxTouchPoints>0)?'touch':'keys';
 addEventListener('keydown',e=>{
+  if(e.target&&e.target.tagName==='INPUT')return;
   if(e.repeat)return;
+  let handled=true;
   switch(e.code){
     case 'ArrowLeft': case 'KeyA': keys.left=true; break;
     case 'ArrowRight': case 'KeyD': keys.right=true; break;
     case 'ArrowUp': case 'KeyW': keys.gas=true; break;
     case 'ArrowDown': case 'KeyS': keys.brake=true; break;
     case 'Space': doAction(); break;
-    case 'KeyH': if(affordance()==='cuff')doAction(); break;
+    case 'KeyH': { const a=affordance(); if(a==='cuff'||a==='book')doAction(); break; }
     case 'KeyE': { const a=affordance(); if(a==='enter'||a==='exit')doAction(); break; }
+    case 'KeyT': fireTaze(performance.now()); break;           // foot only (tazeOK)
+    case 'KeyL': toggleSiren(); break;                          // drive only
+    default: handled=false;
   }
+  if(handled)inputKind='keys';
   if(e.code.startsWith('Arrow')||e.code==='Space')e.preventDefault();
 });
 addEventListener('keyup',e=>{
@@ -616,6 +1010,7 @@ addEventListener('contextmenu',e=>e.preventDefault());
 
 const cv=renderer.domElement;
 cv.addEventListener('pointerdown',e=>{
+  if(e.pointerType!=='mouse')inputKind='touch';   // a desktop click (focus, on-screen button) keeps keys
   if(e.clientX>innerWidth/2) goPointers.add(e.pointerId);
   else if(tilt.fallback)
     touchSteer=clamp((e.clientX-innerWidth/4)/(innerWidth*0.18),-1,1);
@@ -655,6 +1050,7 @@ $('bCal').addEventListener('pointerdown',()=>{
   calibrate(800,()=>say('Zeroed ✓'));
 });
 $('bRespawn').addEventListener('pointerdown',()=>{respawnCrook();say('Crook respawned');});
+$('bReset').addEventListener('pointerdown',()=>{career.stars=career.booked=career.escapes=career.slips=0;saveCareer();hudCareer();say('Career reset');});
 
 function onOrient(){
   if(!started||tilt.fallback)return;
@@ -669,7 +1065,7 @@ if(screen.orientation&&screen.orientation.addEventListener)
 function beginGame(){
   started=true;
   $('overlay').style.display='none';
-  say('Find the crook — cuff him before he reaches a subway 🚇');
+  say((badge?'#'+badge+' '+rankFor(career.stars)+' on duty · ':'')+'find the crook — cuff him before he reaches a subway 🚇',3400);
 }
 function countdownThen(fn){
   const cd=$('cd'); cd.style.display='block';
@@ -681,7 +1077,31 @@ function countdownThen(fn){
     else cd.textContent=n;
   },800);
 }
+/* badge picker on the start screen */
+function renderBadges(){
+  const b=loadBadges(), box=$('badges'), inp=$('badgeIn');
+  box.innerHTML='';
+  for(const x of b.list){
+    let st=0; try{const c=JSON.parse(localStorage.getItem('code3.career.'+x.n)); if(c)st=c.stars|0;}catch(e){}
+    const el=document.createElement('button'); el.type='button';
+    el.className='bchip'+(x.n===inp.value?' on':'');
+    el.textContent='#'+x.n+' · '+rankFor(st)+' '+st+'★';
+    el.addEventListener('pointerdown',e=>{e.preventDefault();inp.value=x.n;renderBadges();});
+    box.appendChild(el);
+  }
+  box.style.display=b.list.length?'flex':'none';
+}
+{ const b=loadBadges(); if(b.current)$('badgeIn').value=b.current; }   // prefill the last badge once
+renderBadges();
+$('badgeIn').addEventListener('input',renderBadges);
+$('badgeIn').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('badgeIn').blur();
+  const touch=('ontouchstart' in window)||(window.matchMedia&&matchMedia('(pointer:coarse)').matches);
+  if(!touch)$('alt').click();}});                     // phones: keypad Go/Done must not skip the tilt start
+function startWithBadge(){ const n=selectBadge($('badgeIn').value); $('badgeIn').value=n; return n; }
+$('bBadge').addEventListener('pointerdown',()=>location.reload());
+
 $('bigStart').addEventListener('click',async()=>{
+  startWithBadge();
   const ok=await requestTilt();
   if(!ok){
     tilt.fallback=true;
@@ -702,6 +1122,7 @@ $('bigStart').addEventListener('click',async()=>{
   }));
 });
 $('alt').addEventListener('click',()=>{
+  startWithBadge();
   tilt.fallback=true;
   $('mlab').textContent='touch steering';
   beginGame();
@@ -709,7 +1130,7 @@ $('alt').addEventListener('click',()=>{
 
 /* ============ crook AI — flee via graph to a subway ============ */
 function hearingRadius(){
-  if(mode==='drive') return Math.abs(car.speed)>0.5 ? 32 : 16;
+  if(mode==='drive') return siren.on?70:(Math.abs(car.speed)>0.5 ? 32 : 16);   // siren: the whole block
   return 12;
 }
 function threatPos(){ return mode==='drive'?{x:car.x,z:car.z}:{x:cop.x,z:cop.z}; }
@@ -731,88 +1152,388 @@ function bfsPath(start,goal,avoid){
   while(n!==start){n=prev[n];path.push(n);}
   return path.reverse();
 }
-function repath(){
-  const th=threatPos();
-  const start=nearestNode(crook.x,crook.z);
-  let best=null,bt=-1;
-  for(const s of SUBWAYS){
-    const p=bfsPath(start,s,{x:th.x,z:th.z,r:14})||bfsPath(start,s,null);
-    if(p&&(best===null||p.length<best.length)){best=p;bt=s;}
-  }
-  crook.path=best; crook.pi=1; crook.target=bt;
+
+/* ============ routing ============
+   Danger-costed Dijkstra over EDGES, seeded from the crook's actual position (endpoints of the
+   nearest edge + nearest node) so an off-node crook never "snaps" to a node behind him.
+   Edges within 6 m of the threat are forbidden; if that walls him in, plan again with them
+   merely 20x expensive (crook.planHot). A first leg is judged from 2 m ahead of him (a threat at
+   his back must not poison every leg alike) and a hot plan never picks a leg INTO the threat while
+   one leads away. path[pi] is always the NEXT waypoint (pi starts at 0);
+   the path never contains a node he already stands on. */
+function segDist(px,pz,ax,az,bx,bz){
+  const dx=bx-ax,dz=bz-az,l2=dx*dx+dz*dz;
+  const t=l2?clamp(((px-ax)*dx+(pz-az)*dz)/l2,0,1):0;
+  return Math.hypot(px-(ax+t*dx),pz-(az+t*dz));
 }
+/* the threat = you: where you are AND where you'll be in 1.5 s (px,pz). On foot the parked cruiser is a
+   soft second threat — a roadblock that only costs (never Infinity): collidePerson slides him around it. */
+function threat(){
+  const drive=mode==='drive', me=drive?car:cop;
+  /* projected with the speed he can SEE: a cop pinned on a hedge with the sprint held (measured mv ≈ 0)
+     is going nowhere — projecting his commanded 7 m/s put the "threat" on top of the crook and every leg went hot */
+  const v=drive?car.speed:(cop.speed>1&&cop.mv<0.35*cop.speed?0:cop.speed);
+  const vx=Math.sin(me.a)*v, vz=Math.cos(me.a)*v;
+  const t={x:me.x,z:me.z,vx,vz,px:me.x+vx*1.5,pz:me.z+vz*1.5,R:drive?40:24,car:drive,soft:null};
+  if(!drive)t.soft={x:car.x,z:car.z,R:8,K:4};
+  return t;
+}
+const isFootNode=i=>NODES[i].tag==='alley'||NODES[i].tag==='park';
+/* ONE rule for "this leg is about to be cut off", shared by the planner (a cold plan never picks such a
+   first leg) and the running check legHot() (a forced re-plan when the leg he is on becomes one) — if the
+   two disagreed he would re-plan onto the same leg and dither. Hot iff the threat, now or in 1.5 s, is within
+   14 m (car) / 10 m (foot) of the leg AND ahead of him along it. */
+const hotR=th=>th.car?14:10;
+/* a car ahead of him on the leg and pulling away along it faster than anyone can run (12 m/s) has
+   already passed: it is not a wall, and it is not where its 1.5 s projection says either */
+function receding(ax,az,bx,bz,th){
+  if(!th.car||th.vx===undefined)return false;
+  const lx=bx-ax,lz=bz-az,L=Math.hypot(lx,lz); if(L<1e-6)return false;
+  return (th.x-ax)*lx+(th.z-az)*lz>0&&(th.vx*lx+th.vz*lz)/L>12;
+}
+function hotLeg(ax,az,bx,bz,th){
+  const lx=bx-ax,lz=bz-az; if(lx*lx+lz*lz<1e-6)return false;
+  if(receding(ax,az,bx,bz,th))return false;
+  const px=th.px===undefined?th.x:th.px, pz=th.pz===undefined?th.z:th.pz;
+  const d=Math.min(segDist(th.x,th.z,ax,az,bx,bz),segDist(px,pz,ax,az,bx,bz));
+  return d<hotR(th)&&(th.x-ax)*lx+(th.z-az)*lz>0;
+}
+/* the car reaches him within `horizon` seconds (at its current closing speed): a hold that would end
+   with the bumper on him is cut — otherwise a hold STANDS, even with the cruiser charging (the 0.4 s
+   freeze is the stage's headline tell; a car doing 34 m/s heard at 32 m is 0.94 s out, and he freezes
+   for 0.4 of them, then dives for the curb — clipped if the driver holds his line, and that is the
+   driver's lesson, not the crook's) */
+function urgent(th,horizon){
+  if(!th.car)return false;
+  const dx=crook.x-th.x,dz=crook.z-th.z,d=Math.hypot(dx,dz); if(d<1e-6)return true;
+  const closing=(Math.sin(car.a)*car.speed*dx+Math.cos(car.a)*car.speed*dz)/d;
+  return closing>8&&(d-6)/closing<horizon;
+}
+/* street lane: with a cruiser about he runs the SIDEWALK side of a street leg, 4 m off the centre line and
+   on the side away from the car — a car passing on the centre line clears him by 2.7 m instead of shoving
+   him along on its bumper. Only for a leg that runs along a street (both ends on one street line); alley,
+   park and plaza cuts steer at the waypoint. The offset fades over the last 10 m so he still hits the node
+   (the subway kiosks sit 4 m off their corners). Returns null when no lane applies. */
+const LANE=4;
+function laneAim(wp,th){
+  if(!th.car)return null;
+  const lx=wp.x-crook.x,lz=wp.z-crook.z,L=Math.hypot(lx,lz); if(L<1e-6)return null;
+  let vert=null,c=0;
+  for(const X of XLINES)if(Math.abs(wp.x-X)<0.6&&Math.abs(crook.x-X)<6&&Math.abs(lz)>3*Math.abs(lx)){vert=true;c=X;break;}
+  if(vert===null)for(const Z of ZLINES)if(Math.abs(wp.z-Z)<0.6&&Math.abs(crook.z-Z)<6&&Math.abs(lx)>3*Math.abs(lz)){vert=false;c=Z;break;}
+  if(vert===null)return null;
+  const dx=vert?0:Math.sign(lx), dz=vert?Math.sign(lz):0, rx=-dz, rz=dx;            // along the street, and its right-hand side
+  const off=vert?crook.x-c:crook.z-c, lat=vert?off*rx:off*rz;                        // his offset, right positive
+  const cOff=vert?car.x-c:car.z-c, cLon=vert?(car.z-crook.z)*dz:(car.x-crook.x)*dx;  // the car on this street?
+  const cLat=vert?cOff*rx:cOff*rz, onStreet=Math.abs(cOff)<7&&cLon>-10&&cLon<45;
+  let lane=onStreet&&Math.abs(cLat)>1.5?-Math.sign(cLat):(Math.abs(lat)>0.5?Math.sign(lat):1);
+  const want=lane*LANE*clamp((L-4)/6,0,1), err=want-lat, ahead=Math.min(L,clamp(6-Math.abs(err),2,6));   // a big lateral error: cut across first
+  const alongX=crook.x+dx*ahead, alongZ=crook.z+dz*ahead;
+  return vert?{x:c+rx*want,z:alongZ}:{x:alongX,z:c+rz*want};
+}
+function edgeCost(A,B,th,hotOK,seed,foot){   // seed: A is the crook's own position (first leg); foot: alley/park leg
+  const len=Math.hypot(A.x-B.x,A.z-B.z);
+  let ax=A.x,az=A.z;
+  if(seed&&!hotOK&&hotLeg(A.x,A.z,B.x,B.z,th))return Infinity;   // the leg legHot() would flag at once
+  if(seed&&len>0){                        // a first leg is judged by where it GOES, not where he stands:
+    const t=Math.min(2,len)/len;          // skip his own 2 m so a threat at his back does not poison every leg
+    ax+=(B.x-A.x)*t; az+=(B.z-A.z)*t;
+  }
+  const px=th.px===undefined?th.x:th.px, pz=th.pz===undefined?th.z:th.pz;
+  const d=receding(ax,az,B.x,B.z,th)?Infinity:Math.min(segDist(th.x,th.z,ax,az,B.x,B.z),segDist(px,pz,ax,az,B.x,B.z));
+  if(d<6&&!hotOK)return Infinity;         // never through the threat (nor where it is about to be)
+  let c=len*(1+8*Math.max(0,1-d/th.R)**2);
+  if(th.soft){const s=th.soft; c*=1+s.K*Math.max(0,1-segDist(s.x,s.z,ax,az,B.x,B.z)/s.R)**2;}
+  if(foot&&th.car)c*=0.6;                 // a car can't follow him down an alley / through the park
+  if(d<6)c*=20;
+  if(seed&&hotOK&&(B.x-A.x)*(th.x-A.x)+(B.z-A.z)*(th.z-A.z)>0)c*=20;   // least-bad: never INTO the threat if any leg leads away
+  return c;
+}
+/* seed legs: straight lines from where he stands to the endpoints of EVERY edge he is on (streets are
+   stored both whole and split at alley ends — collinear duplicates, so the single nearest edge could hide
+   a node 24 m dead ahead behind a corner 4 m behind him), the nearest node, and the node he is running to.
+   Each seed carries whether that leg is inside an alley / the park (the ×0.6 foot discount vs a car):
+   judged by the edge he is ON, not just the seed node's tag — otherwise a street-bound seed out of an
+   alley costs full price while going BACK to the alley's middle node and out again is discounted. */
+function seedLegs(opts){
+  let bd=Infinity;
+  for(const e of EDGES)bd=Math.min(bd,segDist(crook.x,crook.z,NODES[e.a].x,NODES[e.a].z,NODES[e.b].x,NODES[e.b].z));
+  const seeds=new Map(), add=(i,foot)=>seeds.set(i,(seeds.get(i)||false)||foot||isFootNode(i));
+  for(const e of EDGES){                  // every edge he is on (2.5 m: at a corner, all of that corner's streets)
+    if(segDist(crook.x,crook.z,NODES[e.a].x,NODES[e.a].z,NODES[e.b].x,NODES[e.b].z)>Math.max(bd+1,2.5))continue;
+    add(e.a,e.foot); add(e.b,e.foot);
+  }
+  add(nearestNode(crook.x,crook.z),false);
+  const next=(crook.path&&crook.pi<crook.path.length)?crook.path[crook.pi]:-1;
+  if(next>=0){
+    if(opts&&opts.forbidNext){ if(seeds.size>1||!seeds.has(next))seeds.delete(next); }
+    else add(next,crook.pi>0&&isFootNode(crook.path[crook.pi-1]));
+  }
+  return seeds;
+}
+/* opts: forbidNext — the node he is heading to is off the table; noRev — a plan that would turn him round
+   (double-back) is dropped and the current path kept (returns false: no ping-pong under a car that turns as
+   fast as he does) */
+function plan(opts){
+  const th=threat(), now=performance.now();
+  const seeds=seedLegs(opts);
+  const snap={path:crook.path,pi:crook.pi,target:crook.target,planHot:crook.planHot,switchT:crook.switchT,dbUntil:crook.dbUntil,dbCount:crook.dbCount};
+  const onNode=i=>Math.hypot(crook.x-NODES[i].x,crook.z-NODES[i].z)<reachR(i);
+  const run=hotOK=>{
+    const N=NODES.length, dist=new Array(N).fill(Infinity), prev=new Array(N).fill(-1), done=new Array(N).fill(false);
+    for(const [s,foot] of seeds)dist[s]=onNode(s)?0:edgeCost(crook,NODES[s],th,hotOK,true,foot);   // a node he stands on is free: its legs are judged below
+    for(;;){
+      let u=-1,ud=Infinity;
+      for(let i=0;i<N;i++)if(!done[i]&&dist[i]<ud){ud=dist[i];u=i;}
+      if(u<0)break;
+      done[u]=true;
+      const first=onNode(u);              // standing on u: its edges are first legs too — legHot() will judge them from him
+      for(const v of EDGE[u]){
+        if(first&&!hotOK&&hotLeg(crook.x,crook.z,NODES[v].x,NODES[v].z,th))continue;
+        const c=ud+edgeCost(NODES[u],NODES[v],th,hotOK,false,isFootNode(u)||isFootNode(v)); if(c<dist[v]){dist[v]=c;prev[v]=u;}
+      }
+    }
+    let best=-1,gd=Infinity;
+    for(const s of SUBWAYS)if(dist[s]<gd){gd=dist[s];best=s;}
+    /* goal hysteresis: keep the subway he is committed to unless the new best is clearly better
+       (25 % + 10 m), or he has been on this goal 8 s and it is better at all; never flip within 10 m of it.
+       A hot (cornered) plan is always the least-bad route: its costs are all inflated */
+    let goal=best; const cur=crook.target, curD=(cur>=0&&SUBWAYS.includes(cur))?dist[cur]:Infinity;
+    if(!hotOK&&best>=0&&best!==cur&&curD!==Infinity){
+      const nearCur=Math.hypot(crook.x-NODES[cur].x,crook.z-NODES[cur].z)<10;
+      const sw=/*HYST*/!nearCur&&(dist[best]<0.75*curD-10||(now-crook.switchT>8000&&dist[best]<curD));
+      if(!sw)goal=cur;
+    }
+    return {goal,prev,dist};
+  };
+  let r=run(false),hot=false;
+  if(r.goal<0){r=run(true);hot=true;}     // trapped: least-bad route
+  if(r.goal>=0&&r.goal!==crook.target)crook.switchT=now;
+  const path=[]; for(let i=r.goal;i!==-1;i=r.prev[i])path.push(i); path.reverse();
+  if(path.length&&Math.hypot(crook.x-NODES[path[0]].x,crook.z-NODES[path[0]].z)<reachR(path[0]))path.shift();
+  crook.path=path; crook.pi=0; crook.target=r.goal; crook.planHot=hot;
+  /* double-back tell: a new first leg more than 110° off his heading = a dead stop, then turn */
+  if(path.length&&crook.speed>1&&now>=crook.alertUntil&&now>=crook.dbUntil){
+    const w=NODES[path[0]], lx=w.x-crook.x, lz=w.z-crook.z, L=Math.hypot(lx,lz);
+    if(L>1e-6&&(lx*Math.sin(crook.a)+lz*Math.cos(crook.a))/L<Math.cos(110*Math.PI/180)){
+      if(opts&&opts.noRev){Object.assign(crook,snap);return false;}   // would turn him round again: hold the leg
+      crook.dbUntil=now+(urgent(th,0.5)?120:350); crook.dbCount++; crook.revT=now;   // a car on him within the stop: a skid, not a dead stop
+    }
+  }
+  return true;
+}
+function repath(){plan();}
+/* is the leg he is on about to be cut off? threat (now or in 1.5 s) within 14 m (car) / 10 m (foot)
+   of the leg AND ahead of him */
+function legHot(th){
+  th=th||threat();
+  const wp=(crook.path&&crook.pi<crook.path.length)?NODES[crook.path[crook.pi]]:(crook.target>=0?NODES[crook.target]:null);
+  if(!wp)return false;
+  return hotLeg(crook.x,crook.z,wp.x,wp.z,th);
+}
+/* steer target for the leg to wp: the waypoint itself, unless a fat bollard (the plaza fountain)
+   sits on the leg — then a point beside it. Both plaza diagonals run dead through the fountain
+   centre, and a radial approach to a circle is pushed straight back out: he would stand pinned. */
+function aimPoint(wp){
+  const lx=wp.x-crook.x, lz=wp.z-crook.z, l2=lx*lx+lz*lz, L=Math.sqrt(l2);
+  if(l2<1e-12)return wp;
+  for(const bo of BOLLARDS){                // thin ones too: the park-gate bollard pins a dead-radial leg
+    const t=((bo.x-crook.x)*lx+(bo.z-crook.z)*lz)/l2;
+    if(t<=0||t>=1)continue;                 // beside/behind him, or the waypoint itself
+    const px=crook.x+t*lx, pz=crook.z+t*lz, R=bo.r+(bo.r>=2?1.3:0.9);   // 0.9: inside the 4 m gate gap
+    if(Math.hypot(px-bo.x,pz-bo.z)>=R)continue;
+    const nx=-lz/L, nz=lx/L, side=((px-bo.x)*nx+(pz-bo.z)*nz)>=0?1:-1;
+    return {x:bo.x+nx*side*R, z:bo.z+nz*side*R};
+  }
+  return wp;
+}
+
 function respawnCrook(){
-  const th=threatPos();
-  const picks=[];
+  const th=threatPos(), picks=[];
   for(let i=0;i<5;i++)for(let j=0;j<4;j++){
-    const n=IX[i+','+j];
-    if(Math.hypot(NODES[n].x-th.x,NODES[n].z-th.z)>70)picks.push(n);
+    const n=IX[i+','+j], N=NODES[n];        // never on a subway (arrival is position-based → instant escape)
+    if(N.tag!=='subway'&&Math.hypot(N.x-th.x,N.z-th.z)>70&&Math.hypot(N.x-car.x,N.z-car.z)>70)picks.push(n);
   }
   const n=picks.length?picks[Math.floor(rand(0,picks.length))]:IX['4,3'];
   crook.x=NODES[n].x; crook.z=NODES[n].z;
   crook.state='calm'; crook.alerted=false; crook.warned=false;
-  crook.path=null; crook.pi=0; crook.target=-1;
+  crook.path=null; crook.pi=0; crook.target=-1; crook.planHot=false;
   crook.stam=6; crook.tired=false; crook.speed=0;
+  crook.alertUntil=crook.dbUntil=crook.popUntil=crook.glanceT=crook.glanceUntil=crook.qUntil=0;
+  crook.legT=crook.forcedT=crook.switchT=0; crook.holdPlan=false;
+  crook.lostT=0; crook.lost=false; crook.dbCount=0;
+  crook.hitUntil=0; crook.hitCount=0; crook.revT=0;
+  crook.burstUntil=0; crook.tasedT=0; crook.juke=null;
+  crook.inCar=false; crook.slipT=0; crook.bookedT=0; cop.freezeUntil=0;
+  run.active=false; run.meter=0; run.alertT=0; run.cuffT=0; run.paperwork=0; run.slips=0;
+  run.said50=run.said80=run.saidBay=false; $('card').classList.remove('show');
+  taze.charges=3; taze.phase='idle'; taze.hit=false; taze.okT=-1e9;   // a bolt in flight at the old crook is void
   crookM.rotation.z=0;
 }
-function updateCrook(dt,now){
-  if(crook.state==='cuffed'){
-    if(now-crook.cuffT>2500){ respawnCrook(); say('New crook spotted in the district 👀'); }
+/* HUD line for the crook — first match wins */
+function crookLabel(){
+  const now=performance.now(), s=crook.state;
+  if(s==='calm')return 'unaware';
+  if(s==='flee'){
+    if(now<crook.hitUntil)return 'staggered!';
+    if(now<crook.alertUntil)return 'heard you!';
+    if(now<crook.dbUntil)return 'doubling back';
+    if(crook.lost)return 'sneaking';
+    if(now<(crook.burstUntil||0))return 'spooked!';
+    return crook.tired?'tired 😮‍💨':'fleeing!';
+  }
+  return {tased:'tased ⚡',cuffed:'cuffed',custody:'in custody',slipped:'slipped the cuffs!',booked:'booked',escaped:'escaped'}[s]||s;
+}
+/* he hears you (first time, or again after losing you): freeze 0.4 s facing you, plan at once.
+   A cop already sprinting at him from inside 14 m gets only a 0.15 s flinch — a full freeze made a calm
+   crook a free cuff (median 2.4 s) */
+function alertCrook(now,th){
+  const again=crook.alerted, d=Math.hypot(th.x-crook.x,th.z-crook.z);
+  crook.state='flee'; crook.lost=false; crook.lostT=0;
+  crook.alertUntil=now+((!th.car&&d<14)?150:400); crook.popUntil=now+1500; crook.holdPlan=true;
+  crook.qUntil=0;                                          // a '?' still up from losing you goes: '!' and '?' never together
+  crook.a=Math.atan2(th.x-crook.x,th.z-crook.z); crook.speed=0;
+  plan();
+  crook.glanceT=crook.alertUntil+rand(2500,3500); crook.legT=now;
+  if(!crook.alerted)run.alertT=now;                          // par clock starts on the first alert of this crook
+  crook.alerted=true;
+  say(again?"❗ He spotted you again!":siren.on?"❗ He heard the siren — bolting for a subway!":"❗ He heard you — he's bolting for a subway!");
+}
+function updateCrook(dt,now){ crookStep(dt,now); crookHud(); }
+function crookHud(){
+  const lab=crookLabel(); if($('cstate').textContent!==lab){ $('cstate').textContent=lab; if(msgEl.classList.contains('show'))placeMsg(); }
+}
+function crookStep(dt,now){
+  if(crook.state==='cuffed'){                       // the 2.5 s cuff beat (cop frozen) → custody
+    if(now-crook.cuffT>2500){
+      crook.state='custody'; crook.inCar=false; run.active=true; run.meter=0; run.cuffT=crook.cuffT;
+      run.said50=run.said80=false; say('🚔 Get him to the car');
+    }
+    return;
+  }
+  if(crook.state==='custody'){
+    if(crook.inCar){ crook.x=car.x; crook.z=car.z; crook.a=car.a; crook.speed=0;
+      if(inBay(car.x,car.z)&&!run.saidBay){run.saidBay=true;say('Stop in the bay, tap BOOK');}
+    }else{                                          // escorted: 1.8 m behind the cop, on a short leash
+      const tx=cop.x-Math.sin(cop.a)*1.8, tz=cop.z-Math.cos(cop.a)*1.8, k=Math.min(1,dt*10);
+      crook.x+=(tx-crook.x)*k; crook.z+=(tz-crook.z)*k; crook.a=cop.a; crook.speed=cop.speed;
+      [crook.x,crook.z]=collidePerson(crook.x,crook.z,0.45);
+    }
+    return;
+  }
+  if(crook.state==='booked'){                       // 2 s card, then the next crook
+    if(now-crook.bookedT>2000){ $('card').classList.remove('show'); respawnCrook(); say('New crook spotted in the district 👀'); }
     return;
   }
   if(crook.state==='escaped'){
     if(now-crook.cuffT>2000){ respawnCrook(); say('New crook spotted in the district 👀'); }
     return;
   }
-  const th=threatPos();
-  const d=Math.hypot(crook.x-th.x,crook.z-th.z);
-  if(crook.state==='calm'){
-    if(d<hearingRadius()){
-      crook.state='flee'; repath(); crook.repathT=now;
-      if(!crook.alerted){crook.alerted=true;say("❗ He heard you — he's bolting for a subway!");}
+  if(crook.state==='slipped'&&now-crook.slipT>3000)crook.state='flee';   // immunity over; runs on the flee code below
+  if(crook.state==='tased'){                        // 3 s down: slides to a stop, no steering, cuffable
+    if(now-crook.tasedT>3000){
+      if(!crook.alerted)alertCrook(now,threat());          // tased while calm: this is his alert (par clock, '!' tell)
+      crook.state='flee'; crook.stam=Math.min(crook.stam,2); crook.tired=false; crook.juke=null; plan();
+      if(taze.charges===0)say("He's up — taser's empty, run him down",3000);
+      return;
     }
-    $('cstate').textContent='unaware';
+    crook.speed+=(0-crook.speed)*Math.min(1,dt*20);   // drops in ~0.2 s (dt*10 left him at 1.3 m/s a frame short of +0.5 s)
+    [crook.x,crook.z]=collidePerson(crook.x+Math.sin(crook.a)*crook.speed*dt,crook.z+Math.cos(crook.a)*crook.speed*dt,0.45);
     return;
   }
-  // fleeing
-  if(now-crook.repathT>2500){ repath(); crook.repathT=now; }
-  if(!crook.path||crook.pi>=crook.path.length){ repath(); crook.repathT=now; }
+  const th=threat();
+  const d=Math.hypot(crook.x-th.x,crook.z-th.z), hr=hearingRadius();
+  if(crook.state==='calm'){
+    if(d<hr)alertCrook(now,th);
+    return;
+  }
+  // fleeing — arrival is checked on position alone, so a stale path can never overshoot the entrance
+  for(const s of SUBWAYS)if(Math.hypot(crook.x-NODES[s].x,crook.z-NODES[s].z)<2.2){
+    crook.state='escaped'; crook.cuffT=now;
+    escapes++; $('esc').textContent=escapes; career.escapes++; saveCareer(); hudCareer();
+    say('💨 He got away — down the subway!');
+    return;
+  }
+  /* lost you: 3 s out of earshot (60 m, or 1.5× your hearing radius) → he walks; hearing you again re-alerts */
+  crook.lostT=d>Math.max(60,1.5*hr)?crook.lostT+dt:0;
+  if(!crook.lost&&crook.lostT>3){crook.lost=true;crook.qUntil=now+1500;}
+  if(crook.lost&&d<hr){alertCrook(now,th);}
+  /* re-plan triggers: the alert hold ending, a look-back every ~3 s, a corner reached, the leg ahead cut off */
+  if(crook.holdPlan&&now>=crook.alertUntil){crook.holdPlan=false;plan();}
+  /* turned round inside the last 5 s with a MOVING car on him: no plan turns him round again — a car that comes
+     back as fast as he can turn is dodged on the sidewalk, not out-thought; a parked car or a cop on foot keeps
+     the normal rules (a held leg would run him up to a roadblock) */
+  const noRev=th.car&&Math.abs(car.speed)>8&&crook.revT>0&&now-crook.revT<5000;
+  if(now>=crook.glanceT){crook.glanceT=now+rand(2500,3500);crook.glanceUntil=now+500;plan({noRev});}
   if(crook.path&&crook.pi<crook.path.length){
-    const wp=NODES[crook.path[crook.pi]];
-    if(Math.hypot(crook.x-wp.x,crook.z-wp.z)<2.2){
-      if(wp.tag==='subway'){
-        crook.state='escaped'; crook.cuffT=now;
-        escapes++; $('esc').textContent=escapes;
-        say('💨 He got away — down the subway!');
-        return;
-      }
-      crook.pi++;
+    const i=crook.path[crook.pi];
+    if(Math.hypot(crook.x-NODES[i].x,crook.z-NODES[i].z)<reachR(i)){crook.pi++;if(!plan({noRev})&&crook.pi>=crook.path.length)plan();}
+  }
+  if(!crook.path||crook.pi>=crook.path.length)plan();
+  /* the leg ahead cut off → a forced re-plan, at most every 1.2 s (2.5 s with a cop on foot inside 6 m: he
+     overruns and is overrun, and a burst of reversals gains nothing). A car already inside 0.9 s of him is too
+     close to out-turn: the sidewalk and the dive are his answer, not a reversal into a bumper that is past him
+     before he has turned. Within 5 s of a reversal with a moving car on him no plan reverses him again (noRev). */
+  if(now-crook.legT>=400){
+    crook.legT=now;
+    const near=!th.car&&d<6, gapMs=near?2500:1200;
+    if(legHot(th)&&!urgent(th,0.9)&&(!crook.forcedT||now-crook.forcedT>gapMs)){
+      const db=crook.dbCount; crook.forcedT=now;
+      if(plan({forbidNext:true,noRev})&&crook.dbCount>db)crook.glanceT=Math.min(crook.glanceT,now+1500);   // a forced reversal gets a second look soon: the threat may just be passing
     }
   }
-  if(crook.tired){
-    crook.stam+=dt*1.1;
+  /* a hold is cut only when the car would be ON him before it ends (+0.15 s to get going): never stand in
+     its lane, but never skip the freeze for a car that is merely coming */
+  const holdEnd=Math.max(crook.alertUntil,crook.dbUntil);
+  if(holdEnd>now&&urgent(th,(holdEnd-now)/1000+0.15)){crook.alertUntil=Math.min(crook.alertUntil,now);crook.dbUntil=Math.min(crook.dbUntil,now);}
+  if(crook.holdPlan&&now>=crook.alertUntil){crook.holdPlan=false;plan();}
+  const held=now<crook.alertUntil||now<crook.dbUntil||now<crook.hitUntil;
+  if(crook.tired||crook.lost||held){
+    crook.stam=Math.min(6,crook.stam+dt*1.1);
     if(crook.stam>=6)crook.tired=false;
   }else{
     crook.stam-=dt;
     if(crook.stam<=0)crook.tired=true;
   }
-  const spd=crook.tired?3.4:7.0;
-  crook.speed+=(spd-crook.speed)*Math.min(1,dt*4);
-  if(crook.path&&crook.pi<crook.path.length){
-    const wp=NODES[crook.path[crook.pi]];
-    const ta=Math.atan2(wp.x-crook.x,wp.z-crook.z);
+  let spd=held?0:crook.lost?3.0:crook.tired?3.4:7.0;
+  if(!held&&now<crook.burstUntil)spd*=1.4;                 // spooked by a taser miss: 7→9.8, tired 3.4→4.8
+  if(held)crook.speed=0; else crook.speed+=(spd-crook.speed)*Math.min(1,dt*4);
+  const wp=(crook.path&&crook.pi<crook.path.length)?NODES[crook.path[crook.pi]]
+          :(crook.target>=0?NODES[crook.target]:null);       // never "no steering"
+  if(wp&&now>=crook.alertUntil){                            // the alert hold: he stands facing you
+    const ap=laneAim(wp,th)||aimPoint(wp), ta=Math.atan2(ap.x-crook.x,ap.z-crook.z);
     let da=ta-crook.a;
     while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI;
     crook.a+=clamp(da,-4.5*dt,4.5*dt);
+  }else if(now<crook.alertUntil){
+    /* the startle: eyes on the car the whole hold, and if it is MOVING he dives out of its line first —
+       sideways, 9 m/s, until 3.5 m off the line it is driving (a car on the centre line clears him by
+       1.8 m) — toward the side his first leg takes; then he stands there, facing it, until the hold ends.
+       A calm crook stands on the centre line, so a freeze IN the lane was a freeze under the wheels. */
+    crook.a=Math.atan2(th.x-crook.x,th.z-crook.z);
+    if(th.car&&Math.abs(car.speed)>3){
+      const sx=-Math.cos(car.a),sz=Math.sin(car.a), lat=(crook.x-car.x)*sx+(crook.z-car.z)*sz;
+      if(Math.abs(lat)<3.5){
+        const side=Math.abs(lat)>0.3?Math.sign(lat):(Math.sign(wp?(wp.x-crook.x)*sx+(wp.z-crook.z)*sz:0)||1);
+        const m=Math.min(9*dt,3.5-Math.abs(lat));
+        [crook.x,crook.z]=collide(crook.x+sx*side*m,crook.z+sz*side*m,0.45);
+      }
+    }
   }
-  [crook.x,crook.z]=collide(
-    crook.x+Math.sin(crook.a)*crook.speed*dt,
-    crook.z+Math.cos(crook.a)*crook.speed*dt,0.45);
+  let nx=crook.x+Math.sin(crook.a)*crook.speed*dt, nz=crook.z+Math.cos(crook.a)*crook.speed*dt;
+  if(crook.juke&&now<crook.juke.until){nx+=crook.juke.dx*8*dt;nz+=crook.juke.dz*8*dt;}   // the juke: 2.8 m sideways in 0.35 s
+  /* clipped by a cruiser at speed: shed off the bumper (collidePerson), then 0.6 s on his heels — a ram is an
+     event, not a bounce; the car is long past by the time he is up */
+  if(now>=crook.hitUntil&&Math.abs(car.speed)>10&&inCar(nx,nz,0.45)){
+    crook.hitUntil=now+600; crook.hitCount++; crook.speed=0;
+    crook.alertUntil=Math.min(crook.alertUntil,now); crook.dbUntil=Math.min(crook.dbUntil,now);
+    say("💥 Clipped him — he's reeling!");
+  }
+  [crook.x,crook.z]=collidePerson(nx,nz,0.45);
   if(!crook.warned&&crook.target>=0
      &&Math.hypot(crook.x-NODES[crook.target].x,crook.z-NODES[crook.target].z)<30){
     crook.warned=true; say("🚇 He's almost at the subway — cut him off!");
   }
-  $('cstate').textContent=crook.tired?'tired 😮‍💨':'fleeing!';
 }
 
 /* ============ debug panel ============ */
@@ -833,6 +1554,70 @@ function updateDebug(now){
     'mode     '+mode+(tilt.fallback?' · touch fallback':'');
 }
 
+/* ============ simulation ============
+   One step of game logic — steering, car/cop physics, crook AI, context button.
+   No camera, no rendering: test/harness.mjs calls this directly from Node.
+   dt in seconds, now in ms (performance.now()). */
+function simulate(dt,now){
+  const t=now/1000;
+  computeSteer(dt);
+  const go=keys.gas||goPointers.size>0;
+
+  if(mode==='drive'){
+    const px=car.x,pz=car.z;
+    const v0=car.speed, vmax=siren.on?42:34;              // siren: traffic clears
+    if(go)car.speed+=(siren.on?30:26)*dt;
+    if(keys.brake)car.speed-=30*dt;
+    car.speed-=car.speed*0.5*dt;
+    /* the cap limits what the gas can build, never what you already have: siren off at 42 bleeds down through the
+       drag (~0.4 s to 34) instead of a one-tick dump that feels like slamming the brakes */
+    car.speed=clamp(car.speed,-8,Math.max(vmax,v0*(1-0.5*dt)));
+    if(!go&&!keys.brake&&Math.abs(car.speed)<0.05)car.speed=0;
+    /* against a wall (wedged or scraping along it) the car steers as if it still had road speed,
+       so it can pivot out of the wall instead of crawling along it with its dumped speed */
+    const sv=car.contact?Math.sign(car.speed||1)*Math.max(20,Math.abs(car.speed)):car.speed;
+    car.a-=steerSm*2.1*dt*clamp(sv/16,-1.25,1.25);
+    [car.x,car.z]=collide(
+      car.x+Math.sin(car.a)*car.speed*dt,
+      car.z+Math.cos(car.a)*car.speed*dt,1.6);
+    /* measured ground speed: the HUD reads this, not the commanded speed. Wedged against a
+       wall (truly stopped: under 0.5 m/s of real motion — a shallow slide along a wall is NOT
+       wedged and keeps its speed) the commanded speed is dumped — with the throttle on it
+       hovers ~3 (engine revving, still audible); with no throttle it drops to 0. */
+    const mv=Math.hypot(car.x-px,car.z-pz)/dt;
+    car.mvPrev=car.mvRaw; car.mvRaw=mv; car.mv+=(mv-car.mv)*Math.min(1,dt*20);
+    /* paperwork: a crash (over 15 m/s, lost 8 m/s in one step), at most one a second — counted spawn → book */
+    if(car.mvPrev>15&&car.mvPrev-car.mvRaw>8&&now-run.hitT>1000){run.hitT=now; run.paperwork++; say('📋 Paperwork +1'); vib(40);}
+    car.contact=mv<0.6*Math.abs(car.speed)&&Math.abs(car.speed)>0.5;   // something truncated the step
+    car.wedged=mv<0.5&&mv<0.35*Math.abs(car.speed)&&Math.abs(car.speed)>((go||keys.brake)?3:0);
+    if(car.wedged)car.speed*=Math.max(0,1-12*dt);
+    for(const w of carM.wheels)w.rotation.x+=car.speed*dt/0.45;
+    for(const s of carM.steers)s.rotation.y=-steerSm*0.45;
+    carM.body.rotation.z+=(steerSm*clamp(Math.abs(car.speed)/30,0,1)*0.08-carM.body.rotation.z)*Math.min(1,dt*8);
+    $('spd').textContent=Math.round(car.mv*2.2);
+    $('modeTxt').textContent='DRIVING';
+  }else{
+    const frozen=now<cop.freezeUntil;                       // the cuff beat
+    const target=frozen?0:go?7.2:(inputKind==='keys'?0:3.0); // touch keeps SPEC's always-jogging
+    if(frozen)cop.speed=0;
+    else{ cop.speed+=(target-cop.speed)*Math.min(1,dt*6); cop.a-=steerSm*3.6*dt; }
+    const px=cop.x,pz=cop.z;
+    [cop.x,cop.z]=collidePerson(
+      cop.x+Math.sin(cop.a)*cop.speed*dt,
+      cop.z+Math.cos(cop.a)*cop.speed*dt,0.45);
+    cop.mv+=(Math.hypot(cop.x-px,cop.z-pz)/dt-cop.mv)*Math.min(1,dt*10);   // measured, like the car
+    copM.position.set(cop.x,Math.abs(Math.sin(t*10))*0.07,cop.z);
+    copM.rotation.y=cop.a;
+    $('spd').textContent=Math.round(cop.mv*2.2);
+    $('modeTxt').textContent=frozen?'CUFFING':go?'SPRINTING':'ON FOOT';
+  }
+
+  resolveTaze(now);
+  updateCrook(dt,now);
+  updateRun(dt,now);
+  updateActBtn();
+}
+
 /* ============ main loop ============ */
 const camPos=new THREE.Vector3(car.x,8,car.z-16);
 const clock=new THREE.Clock();
@@ -841,56 +1626,26 @@ const relV=new THREE.Vector3();
 
 function tick(){
   requestAnimationFrame(tick);
-  const dt=Math.min(clock.getDelta(),0.05);
+  const dt=Math.min(Math.max(clock.getDelta(),1e-4),0.05);   // never 0: measured speed divides by dt
   const now=performance.now(), t=now/1000;
 
   if(started){
-    computeSteer(dt);
-    const go=keys.gas||goPointers.size>0;
+    simulate(dt,now);
 
-    if(mode==='drive'){
-      if(go)car.speed+=26*dt;
-      if(keys.brake)car.speed-=30*dt;
-      car.speed-=car.speed*0.5*dt;
-      car.speed=clamp(car.speed,-8,34);
-      if(!go&&!keys.brake&&Math.abs(car.speed)<0.05)car.speed=0;
-      car.a-=steerSm*2.1*dt*clamp(car.speed/16,-1.25,1.25);
-      [car.x,car.z]=collide(
-        car.x+Math.sin(car.a)*car.speed*dt,
-        car.z+Math.cos(car.a)*car.speed*dt,1.6);
-      for(const w of carM.wheels)w.rotation.x+=car.speed*dt/0.45;
-      for(const s of carM.steers)s.rotation.y=-steerSm*0.45;
-      carM.body.rotation.z+=(steerSm*clamp(Math.abs(car.speed)/30,0,1)*0.08-carM.body.rotation.z)*Math.min(1,dt*8);
-      $('spd').textContent=Math.round(Math.abs(car.speed)*2.2);
-      $('modeTxt').textContent='DRIVING';
-    }else{
-      const target=go?7.2:3.0;
-      cop.speed+=(target-cop.speed)*Math.min(1,dt*6);
-      cop.a-=steerSm*3.6*dt;
-      [cop.x,cop.z]=collide(
-        cop.x+Math.sin(cop.a)*cop.speed*dt,
-        cop.z+Math.cos(cop.a)*cop.speed*dt,0.45);
-      copM.position.set(cop.x,Math.abs(Math.sin(t*10))*0.07,cop.z);
-      copM.rotation.y=cop.a;
-      $('spd').textContent=Math.round(cop.speed*2.2);
-      $('modeTxt').textContent=go?'SPRINTING':'ON FOOT';
-    }
-
-    updateCrook(dt,now);
-    updateActBtn();
-
-    /* dispatch tracker — crook normally; your car when he's dealt with & you're on foot */
+    /* dispatch tracker — crook normally; your car when he's dealt with & you're on foot.
+       Needs the camera quaternion, so it stays in tick() rather than simulate(). */
     {
       const me=mode==='drive'?car:cop;
       let tx=crook.x, tz=crook.z, lab='Crook', txt;
-      if(mode==='foot'&&(crook.state==='cuffed'||crook.state==='escaped')){
-        tx=car.x; tz=car.z; lab='Car';
-      }
+      const done=crook.state==='cuffed'||crook.state==='custody'||crook.state==='escaped'||crook.state==='booked';
+      if(mode==='foot'&&done){ tx=car.x; tz=car.z; lab='Car'; }
+      else if(mode==='drive'&&crook.state==='custody'&&crook.inCar){ tx=STATION.x; tz=STATION.z; lab='Station'; }
       const cd=Math.hypot(tx-me.x,tz-me.z);
       relV.set(tx-me.x,0,tz-me.z)
         .applyQuaternion(camQ.copy(camera.quaternion).invert());
       $('carr').style.transform='rotate('+Math.atan2(relV.x,-relV.z)+'rad)';
-      txt=(lab==='Crook'&&crook.state==='cuffed')?'✓':Math.round(cd)+'m';
+      $('carr').style.color=lab==='Station'?'var(--blue)':'var(--red)';
+      txt=(lab==='Crook'&&(crook.state==='cuffed'||crook.state==='booked'))?'✓':Math.round(cd)+'m';
       $('tlab').textContent=lab;
       $('cdist').textContent=txt;
     }
@@ -904,21 +1659,48 @@ function tick(){
   carM.g.position.set(car.x,0,car.z); carM.g.rotation.y=car.a;
   blobM.position.x=car.x; blobM.position.z=car.z;
   crookM.visible=(crook.state!=='escaped');
-  crookM.position.set(crook.x,0,crook.z); crookM.rotation.y=crook.a;
+  if(crook.inCar){                                            // seated in the back, car-local (0.5,0.35,-0.8)
+    const ca=Math.cos(car.a),sa=Math.sin(car.a);
+    crookM.position.set(car.x+0.5*ca-0.8*sa,0.35,car.z-0.5*sa-0.8*ca); crookM.rotation.y=car.a;
+  }else{ crookM.position.set(crook.x,0,crook.z); crookM.rotation.y=crook.a; }
 
-  alertS.visible=(crook.state==='flee');
+  /* tells — visual only, read off the crook's fields */
+  const flee=(crook.state==='flee'||crook.state==='slipped'), cuffed=(crook.state==='cuffed'||crook.state==='custody'), tased=(crook.state==='tased');
+  alertS.visible=flee&&now<crook.popUntil;                   // '!' pops 0→1.6 over 0.25 s on (re-)alert
+  if(alertS.visible){const k=1.6*clamp((now-(crook.popUntil-1500))/250,0,1); alertS.scale.set(k,k,1);}
   alertS.position.set(crook.x,2.7+Math.sin(t*6)*0.12,crook.z);
-  const cuffed=(crook.state==='cuffed');
+  const head=crookM.children[2];                             // look-back: head turns toward you
+  if(flee&&now<crook.glanceUntil){
+    const tp=threatPos(); let ga=Math.atan2(tp.x-crook.x,tp.z-crook.z)-crook.a;
+    while(ga>Math.PI)ga-=2*Math.PI; while(ga<-Math.PI)ga+=2*Math.PI;
+    head.rotation.y=clamp(ga,-1.3,1.3);
+    glanceS.visible=true; glanceS.position.set(crook.x,2.5,crook.z);
+  }else{head.rotation.y=0; glanceS.visible=false;}
+  lostS.visible=flee&&now<crook.qUntil;                      // '?' — he lost you
+  lostS.position.set(crook.x,2.7+Math.sin(t*6)*0.12,crook.z);
+  const dust=flee&&now<crook.dbUntil;                        // double-back: dust at his feet
+  const hit=flee&&now<crook.hitUntil;                        // clipped: stars round his head, like cuffed
   for(let i=0;i<3;i++){
-    stars[i].visible=cuffed;
-    if(cuffed){
+    stars[i].visible=cuffed||tased||hit||(dust&&i<2);
+    if(cuffed||tased||hit){
       const a=t*4+i*Math.PI*2/3;
       stars[i].position.set(crook.x+Math.cos(a)*0.5,2.1,crook.z+Math.sin(a)*0.5);
+    }else if(dust){
+      const a=t*20+i*Math.PI, r=0.5+0.3*Math.sin(t*30+i);
+      stars[i].position.set(crook.x+Math.cos(a)*r,0.15+0.1*Math.abs(Math.sin(t*25+i)),crook.z+Math.sin(a)*r);
     }
   }
-  if(cuffed)crookM.rotation.z=0.35;
+  crookM.rotation.z=cuffed?0.35:(flee&&crook.tired)?0.12*Math.sin(2*Math.PI*3*t):0;   // tired wobble
 
-  const flash=Math.floor(t*2)%2;
+  /* taser bolt: cop → aim point during the click and the flash, brighter on a hit */
+  boltM.visible=taze.phase!=='idle';
+  if(boltM.visible){
+    const bx=taze.ax-cop.x,bz=taze.az-cop.z,bl=Math.hypot(bx,bz)||0.01;
+    boltM.position.set(cop.x+bx/2,1.1,cop.z+bz/2); boltM.rotation.y=Math.atan2(bx,bz);
+    boltM.scale.set(taze.hit?2.5:1,taze.hit?2.5:1,bl); boltM.material=taze.hit?boltHit:boltMiss;
+  }
+
+  const flash=Math.floor(t*(siren.on?8:2))%2;
   carM.matR.emissiveIntensity=flash?1:0.08;
   carM.matB.emissiveIntensity=flash?0.08:1;
 
@@ -931,6 +1713,29 @@ function tick(){
   renderer.render(scene,camera);
 }
 tick();
+
+/* ============ test export shim ============
+   Hook for the Node harness (test/harness.mjs). The game script runs inside a vm
+   context with stubbed THREE + DOM, and the tests reach game logic ONLY through this
+   object — top-level const/let/function declarations are not visible from outside.
+   >>> Any new top-level symbol a later stage wants to test MUST be added here. <<<
+   Objects/functions are exported by reference. Reassignable `let` primitives
+   (mode, busts, escapes, started) are exposed as getters/setters so the harness
+   always sees and can set the live value. Harmless in the browser: one global,
+   never read by the game itself. */
+globalThis.__game={ selectBadge,saveCareer,hudCareer,loadBadges,careerKey,renderBadges,get badge(){return badge},
+  car,cop,crook,NODES,EDGE,EDGES,SUBWAYS,IX,BUILDINGS,BOLLARDS,
+  bfsPath,repath,plan,threat,edgeCost,segDist,reachR,aimPoint,respawnCrook,updateCrook,crookLabel,legHot,hotLeg,seedLegs,urgent,receding,laneAim,inCar,
+  collide,collidePerson,carCircles,affordance,doAction,keys,simulate,
+  hearingRadius,threatPos,nearestNode,
+  taze,tazeOK,fireTaze,resolveTaze,startJuke,siren,toggleSiren,wrapPi,updateActBtn,
+  run,career,BAY,STATION,inBay,updateRun,slip,scoreBooked,rankFor,nextRank,loadCareer,saveCareer,RANKS,showCard,hudCareer,
+  get mode(){return mode}, set mode(v){mode=v},
+  get inputKind(){return inputKind}, set inputKind(v){inputKind=v},
+  get busts(){return busts},
+  get escapes(){return escapes},
+  get started(){return started}, set started(v){started=v},
+};
 </script>
 </body>
 </html>
