@@ -5,6 +5,51 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>CODE 3 — District Chase</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='52' font-size='52'%3E%F0%9F%9A%94%3C/text%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b1017">
+<script id="pwa">
+/* PWA side lane (v0.4). The service worker registers only on the real site (https + a *.github.io host),
+   or on any origin with an explicit ?sw=1 opt-in, so dev servers and https playtest tunnels never get a
+   sticky SW. Kill switch: ?sw=0 unregisters every worker and deletes the code3-* caches (then no register).
+   iOS Safari (not yet installed) gets a one-line Add-to-Home-Screen hint. */
+(function(){
+  var q=location.search, hasSW='serviceWorker' in navigator;
+  var prod=location.protocol==='https:' && /\.github\.io$/.test(location.hostname);
+  var kill=/[?&]sw=0(&|$)/.test(q);
+  if(hasSW && kill){
+    try{ navigator.serviceWorker.getRegistrations().then(function(rs){ rs.forEach(function(r){ r.unregister(); }); })
+      .catch(function(){}); }catch(e){}
+    try{ if(window.caches) caches.keys().then(function(ks){ ks.forEach(function(k){ if(k.indexOf('code3-')===0) caches.delete(k); }); })
+      .catch(function(){}); }catch(e){}
+  }
+  var sw=hasSW && !kill && (prod || /[?&]sw=1(&|$)/.test(q));
+  if(sw) addEventListener('load',function(){ navigator.serviceWorker.register('./sw.js').catch(function(){}); });
+  var ua=navigator.userAgent||'';
+  var ios=/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints>1);
+  var standalone=navigator.standalone===true ||
+    (window.matchMedia && matchMedia('(display-mode: standalone)').matches) ||
+    (window.matchMedia && matchMedia('(display-mode: fullscreen)').matches);
+  if(!ios || !/Safari/.test(ua) || /CriOS|FxiOS|EdgiOS/.test(ua) || standalone) return;
+  addEventListener('DOMContentLoaded',function(){
+    var ov=document.getElementById('overlay'); if(!ov) return;
+    try{ if(localStorage.getItem('code3.a2hs')==='x') return; }catch(e){}
+    var d=document.createElement('div'); d.id='a2hs';
+    d.style.cssText='margin:5px 0 0;padding:3px 10px 3px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.22);'+
+      'background:rgba(12,16,24,.62);color:#cfe0ff;font-size:13px;max-width:340px;display:flex;align-items:center;gap:8px;';
+    d.innerHTML='<span>📲 Tap Share → Add to Home Screen</span>'+
+      '<button type="button" aria-label="close" style="background:none;border:none;color:#8fa2bb;font-size:20px;'+
+      'min-width:40px;min-height:40px;margin:-12px -8px -12px 0;padding:0;">×</button>';
+    // the whole pill dismisses it (the × is just the visible cue), so a small finger can't miss
+    d.addEventListener('click',function(ev){ ev.stopPropagation(); d.remove();
+      try{ localStorage.setItem('code3.a2hs','x'); }catch(e){} });
+    var alt=document.getElementById('alt');
+    if(alt && alt.parentNode===ov) alt.insertAdjacentElement('afterend',d); else ov.appendChild(d);
+  });
+})();
+</script>
 <style>
   :root{
     --panel: rgba(12,16,24,.62);
@@ -21,46 +66,59 @@
   canvas{position:fixed;inset:0;display:block;}
 
   #hud{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;
-    align-items:flex-start;padding:calc(10px + env(safe-area-inset-top)) 12px 0;
+    align-items:flex-start;padding:calc(10px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) 0 calc(12px + env(safe-area-inset-left));
     pointer-events:none;z-index:5;gap:8px;}
   .chip{background:var(--panel);border:1px solid var(--line);border-radius:14px;
     padding:8px 12px;color:#eef3fa;font-size:13.5px;line-height:1.3;backdrop-filter:blur(6px);}
   /* the score chip: line 1 (🚨 busts · escapes · mode) never wraps; line 2 (speed · ⚡ pips) is one unit and the
      crook state may drop to a third line on narrow phones rather than being clipped — placeMsg() keeps the toast below */
   #score{white-space:nowrap;flex:0 1 auto;min-width:0;overflow:hidden;padding:8px 9px;font-size:12.5px;}
-  #hud>div:last-child{flex:none;}                     /* tracker + gear never shrink */
+  #hud>div:last-child{flex:none;}
+  #hudL{display:flex;flex-direction:column;align-items:flex-start;gap:6px;flex:0 1 auto;min-width:0;}
+  #hudL>.chip{max-width:100%;}
+  /* academy chip: 🎓 step/N · drill dots · lap clock · penalty seconds (academy only) */
+  #acad{display:none;white-space:nowrap;overflow:hidden;padding:6px 10px;font-size:12.5px;font-variant-numeric:tabular-nums;}
+  #acad.on{display:block;}
+  #acad .dots{color:var(--amber);letter-spacing:.05em;}
+  #acad .pen{color:#ff8d8d;}
+  @media (max-width:380px){ #acad .dots{display:none;} }                     /* tracker + gear never shrink */
   #score b{color:var(--amber);font-variant-numeric:tabular-nums;}
   #l2{font-size:11.5px;color:#aebacb;white-space:normal;}
   #l2 .nw{white-space:nowrap;}
   @media (max-width:400px){                           /* 360-px Android: drop the "Crook" label, tighten the gear */
-    #tlab{display:none;} #track{padding:8px 8px !important;} #gear{padding:8px 9px;} #hud{gap:6px;padding-left:10px;padding-right:10px;}
+    #tlab{display:none;} #track{padding:8px 8px !important;} #gear{padding:8px 9px;} #hud{gap:6px;padding-left:calc(10px + env(safe-area-inset-left));padding-right:calc(10px + env(safe-area-inset-right));}
   }
   #pips{letter-spacing:-.06em;}
   #esc{color:#ff8d8d;font-variant-numeric:tabular-nums;}
   #modeTxt{color:var(--blue);font-weight:700;}
   #gear{pointer-events:auto;border:1px solid var(--line);background:var(--panel);
-    color:#eef3fa;border-radius:14px;font-size:18px;padding:8px 12px;}
+    color:#eef3fa;border-radius:14px;font-size:18px;padding:8px 12px;min-width:44px;min-height:44px;}
 
   #msg{position:fixed;top:calc(74px + env(safe-area-inset-top));   /* below the HUD; placeMsg() re-measures */left:50%;transform:translateX(-50%);
     background:var(--panel);border:1px solid var(--line);color:#fff;border-radius:12px;
     padding:8px 14px;font-size:14px;opacity:0;transition:opacity .18s;z-index:6;
     pointer-events:none;max-width:88vw;text-align:center;}
   #msg.show{opacity:1;}
+  #msg.show.undercard{opacity:0;}   /* the booking / graduation card owns the centre: the toast waits under it, hidden */
 
   /* steering meter */
-  #meter{position:fixed;left:50%;transform:translateX(-50%);
-    bottom:calc(86px + env(safe-area-inset-bottom));width:min(58vw,280px);height:16px;
+  /* steering column: meter over its label over the GO label, centred in the strip right of #bAct (x ≥ 124 px), so
+     nothing lands on the EXIT button; all pointer-events:none over the GO half. max-width + auto margins centre it */
+  #meter{position:fixed;left:calc(124px + env(safe-area-inset-left));right:calc(16px + env(safe-area-inset-right));margin:0 auto;
+    bottom:calc(100px + env(safe-area-inset-bottom));max-width:280px;height:16px;
     background:var(--panel);border:1px solid var(--line);border-radius:10px;z-index:5;
     pointer-events:none;}
   #meter .mid{position:absolute;left:50%;top:2px;bottom:2px;width:2px;background:rgba(255,255,255,.3);}
   #mraw{position:absolute;top:3px;bottom:3px;width:3px;background:#7f8da0;border-radius:2px;left:50%;}
   #msm{position:absolute;top:1px;bottom:1px;width:7px;background:var(--amber);border-radius:4px;left:50%;
     box-shadow:0 0 8px rgba(255,200,87,.6);}
-  #mlab{position:fixed;left:50%;transform:translateX(-50%);
-    bottom:calc(66px + env(safe-area-inset-bottom));color:#aebacb;font-size:11px;z-index:5;pointer-events:none;}
+  #mlab{position:fixed;left:calc(124px + env(safe-area-inset-left));right:calc(16px + env(safe-area-inset-right));margin:0 auto;
+    width:max-content;max-width:calc(100vw - 140px - env(safe-area-inset-left) - env(safe-area-inset-right));box-sizing:border-box;
+    bottom:calc(80px + env(safe-area-inset-bottom));color:#aebacb;font-size:11px;line-height:13px;height:13px;z-index:5;pointer-events:none;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
   /* context action button — the morphing EXIT / ENTER / CUFF button */
-  #bAct{position:fixed;left:16px;bottom:calc(24px + env(safe-area-inset-bottom));
+  #bAct{position:fixed;left:calc(16px + env(safe-area-inset-left));bottom:calc(24px + env(safe-area-inset-bottom));
     width:96px;height:96px;border-radius:50%;background:var(--panel);
     border:2px solid var(--line);color:#fff;font-size:17px;font-weight:800;letter-spacing:.04em;
     z-index:7;backdrop-filter:blur(6px);transition:border-color .15s,opacity .15s;}
@@ -69,19 +127,19 @@
   #bAct.off{opacity:.35;}
   #bAct:active{transform:scale(.94);}
   /* tool slot above #bAct, same x-centre (64 px): TAZE on foot, SIREN in the car — never both */
-  #bTaze{position:fixed;left:26px;bottom:calc(132px + env(safe-area-inset-bottom));
+  #bTaze{position:fixed;left:calc(26px + env(safe-area-inset-left));bottom:calc(132px + env(safe-area-inset-bottom));
     width:76px;height:76px;border-radius:50%;background:rgba(122,90,20,.55);
     border:2px solid var(--amber);color:#fff;font-size:15px;font-weight:800;letter-spacing:.04em;
     z-index:7;backdrop-filter:blur(6px);transition:opacity .15s,visibility .15s;}
   #bTaze:active{transform:scale(.94);}
-  #bSiren{position:fixed;left:22px;bottom:calc(132px + env(safe-area-inset-bottom));
-    width:84px;height:40px;border-radius:20px;background:var(--panel);
+  #bSiren{position:fixed;left:calc(22px + env(safe-area-inset-left));bottom:calc(132px + env(safe-area-inset-bottom));
+    width:84px;height:44px;border-radius:22px;background:var(--panel);
     border:2px solid var(--line);color:#fff;font-size:12px;font-weight:800;letter-spacing:.04em;
     z-index:7;backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;gap:6px;
     padding:0;transition:opacity .15s,visibility .15s;}
   #bSiren .dot{width:10px;height:10px;border-radius:50%;flex:none;
     background:linear-gradient(90deg,var(--red) 50%,var(--blue) 50%);}
-  #bSiren.on{animation:sirenB .3s steps(1) infinite;}
+  #bSiren.on,#bSiren.on.nudge{animation:sirenB .3s steps(1) infinite;}
   #bSiren:active{transform:scale(.94);}
   @keyframes sirenB{0%{border-color:var(--red)}50%{border-color:var(--blue)}}
   .hide{opacity:0;visibility:hidden;pointer-events:none;}   /* taps fall through — even mid-fade */
@@ -107,12 +165,63 @@
   #cardS{font-size:30px;color:var(--amber);margin:4px 0;letter-spacing:.18em;}
   #cardL{font-size:13px;color:#aebacb;}
   #cardR{font-size:12.5px;color:#8fa2bb;margin-top:6px;}
-  #golab{position:fixed;right:16px;bottom:calc(46px + env(safe-area-inset-bottom));
+  /* v0.4 booking party: stars pop in one at a time, PROMOTED stamps down, the villain's name */
+  #cardS .pop{display:inline-block;animation:starpop .45s ease-out both;}
+  @keyframes starpop{0%{transform:scale(0)}60%{transform:scale(1.3)}100%{transform:scale(1)}}
+  #cardH.stamp{animation:stamp .25s ease-out both;}
+  @keyframes stamp{from{transform:scale(2);opacity:0}to{transform:scale(1);opacity:1}}
+  #cardN{font-size:13px;font-weight:700;color:var(--amber);margin-top:6px;}
+  #cardN:empty{display:none;}
+  /* dispatch radio: under the toast, never a touch target */
+  #radio{position:fixed;left:50%;transform:translateX(-50%);top:calc(120px + env(safe-area-inset-top));z-index:6;
+    background:rgba(12,16,24,.8);border:1px solid var(--blue);color:#dcebff;border-radius:12px;padding:6px 12px;
+    font-size:12.5px;line-height:1.35;max-width:88vw;width:max-content;text-align:center;pointer-events:none;
+    visibility:hidden;opacity:0;transition:opacity .2s,visibility .2s;}
+  #radio.show{visibility:visible;opacity:1;}
+  /* short landscape: keep clear of the left thumb column (#bSiren / #bTaze / #bAct end at x 112): symmetric 124 px margins */
+  @media (max-height:480px){#radio{max-width:calc(100vw - 248px - env(safe-area-inset-left) - env(safe-area-inset-right));}}
+  /* graduation: the card's one button (off-play; the card itself stays pointer-events:none) */
+  #cardGo{display:none;margin:14px auto 0;font-size:16px;font-weight:800;letter-spacing:.05em;color:#0b1017;
+    background:var(--amber);border:none;border-radius:14px;padding:12px 20px;min-height:48px;pointer-events:auto;font-family:inherit;}
+  #card.grad #cardGo{display:block;}
+  /* TRY AGAIN ↻: the second card button (off-play), a quieter outline above GO ON PATROL */
+  #cardAgain{display:none;margin:12px auto 0;font-size:14px;font-weight:800;letter-spacing:.05em;color:var(--amber);
+    background:transparent;border:2px solid var(--amber);border-radius:14px;padding:8px 18px;min-height:44px;pointer-events:auto;font-family:inherit;}
+  #card.grad #cardAgain{display:block;}
+  #card.grad #cardAgain + #cardGo{margin-top:8px;}
+  /* short landscape: a compact card centred in the band under the HUD; the steering column (feedback only,
+     pointer-events:none) steps aside while it is up so nothing sits under the card */
+  @media (max-height:480px){
+    #card{top:calc(50% + 38px + env(safe-area-inset-top) / 2);padding:8px 22px;border-radius:16px;}
+    #cardH{font-size:20px;} #cardS{font-size:22px;margin:0;} #cardN,#cardR{margin-top:3px;}
+    #cardGo{margin-top:8px;min-height:44px;padding:8px 18px;}
+    #card.grad #cardAgain,#card.grad #cardGo{display:inline-block;margin:6px 3px 0;vertical-align:middle;
+      font-size:13px;letter-spacing:0;padding:8px 12px;white-space:nowrap;}   /* both fit one row (667x375, 568x320) */
+    #card.grad{width:max-content;max-width:min(330px,calc(100vw - 32px));}   /* left:50% alone caps shrink-to-fit at 50vw; ≤330 clears #bAct */
+    #card.show ~ #credit{visibility:hidden;}   /* the tiny credit line would sit under a card this tall */
+    #card.show ~ #meter,#card.show ~ #mlab,#card.show ~ #golab,#card.show ~ #hint{visibility:hidden;}
+  }
+  /* "DO THIS NOW" hint pill — above the tool slot over #bAct; never a touch target */
+  #hint{position:fixed;left:calc(16px + env(safe-area-inset-left));bottom:calc(218px + env(safe-area-inset-bottom));z-index:6;pointer-events:none;
+    background:rgba(12,16,24,.72);border:1.5px solid var(--amber);color:var(--amber);border-radius:12px;
+    padding:6px 11px;font-size:14px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;
+    display:none;}
+  #hint.on{display:block;}
+  /* short landscape: beside #bAct instead of above the tool slot, clear of the HUD band */
+  @media (max-height:480px){#hint{left:calc(124px + env(safe-area-inset-left));bottom:calc(30px + env(safe-area-inset-bottom));}}
+  /* pulse ring around #bAct when the hint's verb is the button's action (bAct's own class/text never change) */
+  #actRing{position:fixed;left:calc(16px + env(safe-area-inset-left));bottom:calc(24px + env(safe-area-inset-bottom));width:96px;height:96px;
+    border-radius:50%;border:3px solid var(--amber);z-index:6;pointer-events:none;display:none;}
+  #actRing.on{display:block;animation:ring .5s ease-in-out infinite alternate;}
+  @keyframes ring{from{transform:scale(1);opacity:.9}to{transform:scale(1.12);opacity:.35}}
+  #bSiren.nudge{animation:nudge .5s ease-in-out infinite alternate;}
+  @keyframes nudge{from{box-shadow:0 0 0 0 rgba(255,200,87,.9)}to{box-shadow:0 0 0 8px rgba(255,200,87,0)}}
+  #golab{position:fixed;right:calc(16px + env(safe-area-inset-right));bottom:calc(46px + env(safe-area-inset-bottom));
     color:#aebacb;font-size:11.5px;z-index:5;pointer-events:none;background:var(--panel);
     border:1px solid var(--line);border-radius:10px;padding:6px 10px;}
 
   /* settings */
-  #settings{position:fixed;top:calc(60px + env(safe-area-inset-top));right:12px;z-index:9;
+  #settings{position:fixed;top:calc(60px + env(safe-area-inset-top));right:calc(12px + env(safe-area-inset-right));z-index:9;
     background:rgba(12,16,24,.9);border:1px solid var(--line);border-radius:16px;
     color:#eef3fa;padding:14px 16px;width:min(84vw,300px);display:none;font-size:13.5px;}
   #settings.open{display:block;}
@@ -121,18 +230,30 @@
   #settings .row{display:flex;justify-content:space-between;align-items:center;margin:10px 0;gap:10px;}
   #settings input[type=range]{width:130px;}
   #settings button{background:#1d2a3d;border:1px solid var(--line);color:#fff;
-    border-radius:9px;padding:7px 10px;font-size:13px;}
+    border-radius:9px;padding:7px 10px;font-size:13px;min-height:44px;}
   #settings .tog.on{background:#2b4a8c;border-color:var(--blue);}
   #debug{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);
     font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#9fb0c6;
     white-space:pre;display:none;line-height:1.5;}
   #debug.on{display:block;}
+  #settings{max-height:calc(100% - 76px - env(safe-area-inset-top));overflow-y:auto;overflow-x:hidden;}
+  /* House rules (co-designer): collapsed; one cycling .tog per rule, stored per phone in code3.rules */
+  #rules{display:none;border-top:1px solid var(--line);padding-top:2px;}
+  #rules.on{display:block;}
+  #rules .row{margin:7px 0;}
+  #rules .row span{font-size:12.5px;line-height:1.25;min-width:0;}
+  #rules .row button{flex:none;min-width:70px;}
+  /* pause veil: app hidden / focus lost mid-game — below #settings, above everything in play */
+  #pause{position:fixed;inset:0;z-index:8;display:none;align-items:center;justify-content:center;
+    background:rgba(8,12,18,.72);color:#eef3fa;font-size:22px;font-weight:800;letter-spacing:.05em;text-align:center;padding:24px;}
+  #pause.on{display:flex;}
 
   /* overlay */
   #overlay{position:fixed;inset:0;z-index:10;background:
     radial-gradient(120% 90% at 50% 0%, #172438 0%, #0b1017 62%);
     display:flex;flex-direction:column;align-items:center;justify-content:center;
-    color:#eef3fa;text-align:center;padding:24px;}
+    color:#eef3fa;text-align:center;
+    padding:calc(24px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left));}
   #overlay h1{margin:0;font-size:clamp(26px,7vw,46px);letter-spacing:.03em;font-weight:800;margin-top:auto;}
   #overlay h1 span{color:var(--amber);}
   #overlay p.sub{margin:10px 0 6px;color:#aebacb;font-size:15px;max-width:340px;}
@@ -142,7 +263,7 @@
     background:var(--amber);border:none;border-radius:14px;padding:15px 26px;
     box-shadow:0 4px 0 rgba(0,0,0,.35);}
   #bigStart:active{transform:translateY(2px);box-shadow:0 2px 0 rgba(0,0,0,.35);}
-  #alt{margin-top:14px;color:#8fa2bb;font-size:13px;text-decoration:underline;background:none;border:none;}
+  #alt{margin-top:2px;color:#8fa2bb;font-size:13px;text-decoration:underline;background:none;border:none;padding:12px 16px;}   /* padding = a 44 px hit area, same look */
   #badgeRow{margin:12px 0 2px;display:flex;flex-direction:column;align-items:center;gap:8px;}
   #badgeRow label{font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:#aebacb;}
   #badgeIn{width:170px;font-size:26px;font-weight:800;text-align:center;letter-spacing:.14em;
@@ -154,20 +275,52 @@
   .bchip{background:var(--panel);border:1px solid var(--line);color:#eef3fa;border-radius:10px;padding:6px 10px;
     font-size:13px;font-variant-numeric:tabular-nums;font-family:inherit;}
   .bchip.on{border-color:var(--amber);color:var(--amber);}
+  #modeSeg{display:flex;flex:none;margin-top:18px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel);}
+  #modeSeg button{font-family:inherit;font-size:14px;font-weight:800;letter-spacing:.05em;color:#aebacb;background:none;
+    border:none;padding:11px 16px;}
+  #modeSeg button.on{background:#2b4a8c;color:#fff;}
+  #modeSeg + #bigStart{margin-top:12px;}
   #cd{font-size:64px;font-weight:800;color:var(--amber);margin-top:10px;display:none;}
   #note{margin-top:16px;color:#6d7e96;font-size:12px;max-width:320px;margin-bottom:auto;}
   #overlay{justify-content:flex-start;overflow-y:auto;touch-action:pan-y;-webkit-overflow-scrolling:touch;}
-  #credit{position:fixed;left:10px;bottom:calc(6px + env(safe-area-inset-bottom));color:#5c6b80;
+  #credit{position:fixed;left:calc(10px + env(safe-area-inset-left));bottom:calc(6px + env(safe-area-inset-bottom));color:#5c6b80;
     font-size:10px;z-index:5;pointer-events:none;}
+  /* start screen on short screens (iPhone SE, Safari with toolbars, 360-px Androids): START and the touch start
+     stay above the fold */
+  @media (max-height:860px){
+    #overlay p.sub{display:none;}
+    #overlay .how{margin:10px 0 2px;font-size:13px;line-height:1.45;padding:10px 14px;}
+    #badgeRow{margin-top:8px;} #modeSeg{margin-top:10px;} #modeSeg + #bigStart{margin-top:10px;} #alt{margin-top:0;}
+  }
+  /* short landscape: the title across the top, then two columns — how-to left, badge / mode / START right */
+  @media (orientation:landscape) and (max-height:500px){
+    #overlay{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);
+      grid-template-rows:repeat(6,max-content) 1fr;column-gap:22px;align-content:start;justify-items:center;
+      padding-top:calc(10px + env(safe-area-inset-top));padding-bottom:calc(12px + env(safe-area-inset-bottom));}
+    #overlay h1{grid-column:1 / -1;grid-row:1;margin:0 0 4px;font-size:30px;}
+    #overlay .how{grid-column:1;grid-row:2 / 8;align-self:start;margin:0;font-size:12.5px;line-height:1.4;padding:9px 13px;}
+    #badgeRow{grid-column:2;grid-row:2;margin:0;gap:4px;justify-self:stretch;}
+    #badgeIn{font-size:22px;padding:5px 10px;} .bchip{padding:4px 7px;font-size:12px;}
+    #modeSeg{grid-column:2;grid-row:3;margin-top:8px;}
+    #modeSeg button{padding:9px 14px;}
+    #bigStart,#modeSeg + #bigStart{grid-column:2;grid-row:4;margin-top:8px;padding:12px 22px;}
+    #alt{grid-column:2;grid-row:5;margin-top:0;padding:12px 16px;}
+    #a2hs{grid-column:2;grid-row:6;}
+    #cd{grid-column:2;grid-row:5;margin-top:2px;font-size:48px;}   /* #alt is hidden while #cd shows */
+    #note{grid-column:2;grid-row:7;align-self:start;margin:8px 0 0;font-size:11px;}
+  }
 </style>
 </head>
 <body>
 
 <div id="hud">
+  <div id="hudL">
   <div class="chip" id="score"><span id="c3">🚨</span>🚔 <b id="busts">0</b> · 💨 <span id="esc">0</span> · <span id="modeTxt">DRIVING</span><br>
     <span id="l2"><span class="nw"><span id="spd">0</span> mph · <span id="pips">⚡⚡⚡</span> ·</span> <span class="nw">★<span id="cstars">0</span> <span id="rank">CADET</span></span><br>
     crook: <span id="cstate">unaware</span></span>
     <span id="cline">🔒 <span id="cbar"><i id="cfill"></i></span> <span id="cpct">0%</span></span></div>
+  <div class="chip" id="acad"></div>
+  </div>
   <div style="display:flex;gap:8px;align-items:flex-start;">
     <div class="chip" id="track" style="display:flex;align-items:center;gap:6px;padding:8px 10px;">
       <span id="tlab" style="font-size:11px;letter-spacing:.06em;color:#aebacb;text-transform:uppercase;">Crook</span>
@@ -178,7 +331,8 @@
   </div>
 </div>
 <div id="msg"></div>
-<div id="card"><div id="cardH">BOOKED</div><div id="cardS">★ ★ ★</div><div id="cardL"></div><div id="cardR"></div></div>
+<div id="radio"></div>
+<div id="card"><div id="cardH">BOOKED</div><div id="cardS">★ ★ ★</div><div id="cardL"></div><div id="cardR"></div><button id="cardGo">GO ON PATROL →</button></div>
 
 <div id="meter"><div class="mid"></div><div id="mraw"></div><div id="msm"></div></div>
 <div id="mlab">tilt steering</div>
@@ -186,6 +340,8 @@
 <button id="bAct" class="off">—</button>
 <button id="bTaze" class="hide">⚡ TAZE</button>
 <button id="bSiren" class="hide"><span class="dot"></span>SIREN</button>
+<div id="actRing"></div>
+<div id="hint"></div>
 
 <div id="settings">
   <h3>TILT SETTINGS</h3>
@@ -202,12 +358,18 @@
   <div class="row"><span>Career<br><small id="carv" style="color:#8fa2bb"></small></span>
     <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button id="bBadge">Change badge</button>
     <button id="bReset">Reset career</button></span></div>
+  <div class="row"><span>Hints</span>
+    <button class="tog on" id="tHints">on</button></div>
+  <div class="row"><span>House rules<br><small style="color:#8fa2bb">(co-designer)</small></span>
+    <button class="tog" id="tRules">show</button></div>
+  <div id="rules"></div>
   <div id="debug"></div>
 </div>
+<div id="pause"><div>PAUSED · tap to resume</div></div>
 
 <div id="overlay">
   <h1>CODE <span>3</span></h1>
-  <p class="sub">District prototype v0.3 · cuff him, then book him at Precinct 3</p>
+  <p class="sub">District prototype v0.4 · cuff him, then book him at Precinct 3</p>
   <div class="how">
     📱 <b>Tilt</b> to steer — car <i>and</i> on foot<br>
     👆 <b>Hold right side</b> = gas / sprint<br>
@@ -215,22 +377,24 @@
     👂 He hears your engine — 🚇 he'll bolt for a <b style="color:var(--green)">subway</b><br>
     🚧 Alleys &amp; the park are foot-only. Cut him off!<br>
     ⚡ <b>TAZE</b> pops up when he's in range · 🚨 <b>SIREN</b>: faster, but everyone hears you<br>
-    🏢 Cuffed him? Drive him to the <b style="color:var(--blue)">station</b> — stop in the bay, tap <b style="color:var(--green)">BOOK</b>
+    🏢 Cuffed him? Drive him to the <b style="color:var(--blue)">station</b> — stop in the bay, tap <b style="color:var(--green)">BOOK</b><br>
+    🎓 New? Try the <b>Academy</b> first — or skip it
   </div>
   <div id="badgeRow">
     <label for="badgeIn">Badge #</label>
     <input id="badgeIn" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" placeholder="new badge">
     <div id="badges"></div>
   </div>
+  <div id="modeSeg"><button type="button" id="segPatrol">🚔 PATROL</button><button type="button" id="segAcad">🎓 ACADEMY</button></div>
   <button id="bigStart">ENABLE TILT &amp; START</button>
   <button id="alt">no tilt — use touch / keys instead</button>
   <div id="cd"></div>
   <div id="note">Desktop: arrows/WASD drive · SPACE = exit/enter · H = cuff / book · T = taser · L = siren.<br>
   iPhone will ask for motion access — tap Allow.</div>
 </div>
-<div id="credit">code 3 · district · prototype v0.3</div>
+<div id="credit">code 3 · academy · prototype v0.4</div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous"></script>
 <script id="game">
 'use strict';
 
@@ -239,6 +403,31 @@ const rand=(a,b)=>a+Math.random()*(b-a);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const M=(color,opts)=>new THREE.MeshLambertMaterial(Object.assign({color},opts||{}));
 const $=id=>document.getElementById(id);
+/* hash32(a,b): deterministic [0,1) — the ONLY randomness source for v0.4 code. Math.random/rand() feed the
+   seeded layout + respawn picks (test/fixtures/layout-v03.json): a new call would shift every seed's world */
+function hash32(a,b){
+  let t=(((a|0)*73856093)^((b|0)*19349663))+0x6D2B79F5|0;
+  t=Math.imul(t^(t>>>15),t|1); t^=t+Math.imul(t^(t>>>7),t|61);
+  return ((t^(t>>>14))>>>0)/4294967296;
+}
+/* event bus: emit(type,data) at game sites; listeners (audio, academy, tests) subscribe with onFx(f).
+   A throwing listener never breaks the game. Event names are a fixed contract (see SPEC v0.4). */
+const FX=[]; function emit(type,data){for(const f of FX)try{f(type,data)}catch(e){}} function onFx(f){FX.push(f)}
+/* game clock: all logic time is gnow() — performance.now() minus the time spent paused */
+let pausedMs=0, paused=false, pauseT0=0; const gnow=()=>(paused?pauseT0:performance.now())-pausedMs;   // frozen while paused
+/* House rules (co-designer switchboard): each read at exactly ONE site. Defaults = v0.3 behaviour, except
+   slipSubwayBan (a gap fix, flagged solo ruling pending veto). Q1 ramCost · Q2 enterGraceS/bookMaxMv · Q3 parFromSlip */
+const RULES_DEF={ramCost:'none',enterGraceS:0,bookMaxMv:3,parFromSlip:false,slipSubwayBan:true,gradStars:0};
+const RULES=Object.assign({},RULES_DEF);
+function loadRules(){
+  for(const k of Object.keys(RULES))delete RULES[k];
+  Object.assign(RULES,RULES_DEF);
+  try{const r=JSON.parse(localStorage.getItem('code3.rules'));
+    if(r&&typeof r==='object')for(const k of Object.keys(RULES_DEF))if(k in r&&typeof r[k]===typeof RULES_DEF[k])RULES[k]=r[k];}catch(e){}
+  return RULES;
+}
+function saveRules(){try{localStorage.setItem('code3.rules',JSON.stringify(RULES));}catch(e){}}
+loadRules();
 
 /* ============ renderer / scene ============ */
 const scene=new THREE.Scene();
@@ -264,6 +453,7 @@ sun.position.set(60,90,35); scene.add(sun);
 const XLINES=[-112,-56,0,56,112], ZLINES=[-84,-28,28,84];
 const CLX=118, CLZ=90;              // movement clamp (inner face of walls)
 const BUILDINGS=[];                  // AABB colliders {x1,x2,z1,z2}
+const WALL_VIS=[];
 const BOLLARDS=[];                   // circle colliders {x,z,r} (block everyone incl. car)
 
 { // ground
@@ -273,17 +463,59 @@ const BOLLARDS=[];                   // circle colliders {x,z,r} (block everyone
   road.rotation.x=-Math.PI/2; road.position.y=0.02; scene.add(road);
 }
 { // perimeter walls — tall so the boundary is visually impassable
-  const wm=M(0x6b7280);
-  const mk=(w,d,x,z)=>{const m=new THREE.Mesh(new THREE.BoxGeometry(w,7,d),wm);
-    m.position.set(x,3.5,z); scene.add(m);};
+  const mk=(w,d,x,z)=>WALL_VIS.push([x,z,w,d]);           // drawn in the static batch below (one draw call)
   mk(CLX*2+18,6, 0, CLZ+3+3); mk(CLX*2+18,6, 0,-(CLZ+6));
   mk(6,CLZ*2+18, CLX+6,0);    mk(6,CLZ*2+18,-(CLX+6),0);
 }
 
-const bollardGeo=new THREE.CylinderGeometry(0.3,0.3,1.1,10);
-const bollardMat=M(0xd9d43f);
+/* QuadBatch: flat-colour quads/boxes/domes from OUR OWN Float32 arrays → flush() = ONE Mesh, one draw call.
+   Never reads THREE-built attributes (harness-safe). quad(a,b,c,d,col): 4 corners [x,y,z], counter-clockwise seen
+   from the lit side. Colours are 0xRRGGBB (same space as M()). */
+function QuadBatch(){ this.p=[]; this.n=[]; this.c=[]; }
+QuadBatch.prototype.quad=function(a,b,c,d,col){
+  const ux=b[0]-a[0],uy=b[1]-a[1],uz=b[2]-a[2], vx=d[0]-a[0],vy=d[1]-a[1],vz=d[2]-a[2];
+  let nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx; const l=Math.hypot(nx,ny,nz)||1; nx/=l; ny/=l; nz/=l;
+  const r=(col>>16&255)/255, g=(col>>8&255)/255, bl=(col&255)/255;
+  for(const v of[a,b,c,a,c,d]){ this.p.push(v[0],v[1],v[2]); this.n.push(nx,ny,nz); this.c.push(r,g,bl); }
+  return this;
+};
+/* flat ground rectangle (y up), x1..x2 × z1..z2 */
+QuadBatch.prototype.flat=function(x1,x2,z1,z2,y,col){ return this.quad([x1,y,z2],[x2,y,z2],[x2,y,z1],[x1,y,z1],col); };
+/* axis box centred (cx,cy,cz), size sx,sy,sz */
+QuadBatch.prototype.box=function(cx,cy,cz,sx,sy,sz,col){
+  const x1=cx-sx/2,x2=cx+sx/2,y1=cy-sy/2,y2=cy+sy/2,z1=cz-sz/2,z2=cz+sz/2;
+  this.quad([x1,y1,z2],[x2,y1,z2],[x2,y2,z2],[x1,y2,z2],col);   // +z (front)
+  this.quad([x2,y1,z1],[x1,y1,z1],[x1,y2,z1],[x2,y2,z1],col);   // -z
+  this.quad([x2,y1,z2],[x2,y1,z1],[x2,y2,z1],[x2,y2,z2],col);   // +x
+  this.quad([x1,y1,z1],[x1,y1,z2],[x1,y2,z2],[x1,y2,z1],col);   // -x
+  this.quad([x1,y2,z2],[x2,y2,z2],[x2,y2,z1],[x1,y2,z1],col);   // top
+  return this.quad([x1,y1,z1],[x2,y1,z1],[x2,y1,z2],[x1,y1,z2],col);   // bottom
+};
+/* low-poly dome (upper half-sphere, or a whole ball with full=true) */
+QuadBatch.prototype.dome=function(cx,cy,cz,r,col,full){
+  const S=8, R=full?4:2, pt=(i,j)=>{const th=i/S*Math.PI*2, ph=(full?j/R*Math.PI:j/R*Math.PI/2)-(full?Math.PI/2:0);
+    return [cx+Math.cos(ph)*Math.sin(th)*r, cy+Math.sin(ph)*r, cz+Math.cos(ph)*Math.cos(th)*r];};
+  for(let i=0;i<S;i++)for(let j=0;j<R;j++)this.quad(pt(i,j),pt(i+1,j),pt(i+1,j+1),pt(i,j+1),col);
+  return this;
+};
+QuadBatch.prototype.flush=function(parent){
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(this.p),3));
+  g.setAttribute('normal',new THREE.BufferAttribute(new Float32Array(this.n),3));
+  g.setAttribute('color',new THREE.BufferAttribute(new Float32Array(this.c),3));
+  const m=new THREE.Mesh(g,new THREE.MeshLambertMaterial({vertexColors:true}));
+  m.userData.verts=this.p.length/3;
+  (parent||scene).add(m); return m;
+};
+/* n-sided upright prism (bollards, trunks): sides + a top cap */
+QuadBatch.prototype.prism=function(cx,cz,y1,y2,r,col,n){
+  n=n||6; const pt=(i,y)=>{const a=i/n*Math.PI*2; return [cx+Math.sin(a)*r,y,cz+Math.cos(a)*r];};
+  for(let i=0;i<n;i++)this.quad(pt(i,y1),pt(i+1,y1),pt(i+1,y2),pt(i,y2),col);
+  return this;
+};
+const BOLL_VIS=[], TREE_VIS=[];      // visual-only positions, batched after block generation (one draw call)
 function addBollard(x,z,r){
-  const p=new THREE.Mesh(bollardGeo,bollardMat); p.position.set(x,0.55,z); scene.add(p);
+  BOLL_VIS.push([x,z]);
   BOLLARDS.push({x,z,r:r||0.35});
 }
 function addBox(x1,x2,z1,z2,h,color){
@@ -292,7 +524,7 @@ function addBox(x1,x2,z1,z2,h,color){
   BUILDINGS.push({x1,x2,z1,z2});
   return m;
 }
-const PALETTE=[0xb7a98c,0x9aa7b8,0xc2917f,0xa8b59a,0x8f9db0,0xbfae95];
+const PALETTE=[0xcbba99,0xa9b8cb,0xd79f8a,0xb9c8a9,0x9cadc3,0xd3bfa3];   // v0.4 art pass: ~+40% saturation, +10% lightness
 
 /* --- waypoint graph (crook travels this) --- */
 const NODES=[], EDGE=[];
@@ -361,11 +593,7 @@ for(let c=0;c<4;c++)for(let r=0;r<3;r++){
     addBollard(x1+0.6,cz); addBollard(x2-0.6,cz);
     // trees (collide like fat bollards)
     for(const[tx,tz]of[[-12,-12],[12,-12],[-12,12],[12,12],[-15,2],[15,-3],[3,15],[-4,-15]]){
-      const trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.45,2.4,8),M(0x7a5a3a));
-      trunk.position.set(cx+tx,1.2,cz+tz);
-      const crown=new THREE.Mesh(new THREE.ConeGeometry(2.2,4.5,8),M(0x3f7a3f));
-      crown.position.set(cx+tx,4.4,cz+tz);
-      scene.add(trunk,crown);
+      TREE_VIS.push([cx+tx,cz+tz]);                       // drawn instanced below (2 draw calls for all trees)
       BOLLARDS.push({x:cx+tx,z:cz+tz,r:0.5});
     }
     const nN=addNode(cx,z1-0.5), nS=addNode(cx,z2+0.5),
@@ -401,6 +629,26 @@ for(let c=0;c<4;c++)for(let r=0;r<3;r++){
     link(nC,IX[c+','+(r+1)]); link(nC,IX[(c+1)+','+(r+1)]);
   }
 }
+
+/* --- instanced street furniture + road paint (visual only: BUILDINGS/BOLLARDS/NODES/EDGE untouched) --- */
+function roadPaint(){
+  const q=new QuadBatch(), Y=0.04, YEL=0xffd23f, WHT=0xf2f2f2, HW=6;   // streets are 12 wide
+  const dash=(a,b,fixed,alongX)=>{ for(let u=a+1.5;u+3<=b-1.5;u+=6){
+    if(alongX)q.flat(u,u+3,fixed-0.13,fixed+0.13,Y,YEL); else q.flat(fixed-0.13,fixed+0.13,u,u+3,Y,YEL); } };
+  for(const x of XLINES)for(let j=0;j<ZLINES.length-1;j++)dash(ZLINES[j]+HW+3,ZLINES[j+1]-HW-3,x,false);
+  for(const z of ZLINES)for(let i=0;i<XLINES.length-1;i++)dash(XLINES[i]+HW+3,XLINES[i+1]-HW-3,z,true);
+  const zebra=(x,z,dx,dz)=>{                              // 6 stripes across the road, 1.5..3.5 m past the corner
+    for(let k=0;k<6;k++){ const w=-HW+1+k*2;
+      if(dx)q.flat(x+dx*(HW+0.5),x+dx*(HW+2.5),z+w,z+w+1,Y,WHT); else q.flat(x+w,x+w+1,z+dz*(HW+0.5),z+dz*(HW+2.5),Y,WHT); } };
+  for(let i=0;i<XLINES.length;i++)for(let j=0;j<ZLINES.length;j++){ const x=XLINES[i],z=ZLINES[j];
+    if(i>0)zebra(x,z,-1,0); if(i<XLINES.length-1)zebra(x,z,1,0); if(j>0)zebra(x,z,0,-1); if(j<ZLINES.length-1)zebra(x,z,0,1); }
+  for(const [x,z] of BOLL_VIS){ q.prism(x,z,0,1.1,0.3,0xffd23f,6); q.flat(x-0.26,x+0.26,z-0.26,z+0.26,1.1,0xffd23f); }
+  TREE_VIS.forEach(([x,z],i)=>{ const s=0.9+0.3*hash32(i,78), g=hash32(i,79)<0.5?0x4caf50:0x3f9a45;   // blocky trees
+    q.prism(x,z,0,2.3,0.4,0x8a6040,6); q.box(x,3.4*s,z,3*s,2.3*s,3*s,g); q.box(x,4.9*s,z,1.9*s,0.8*s,1.9*s,0x5cc35f); });   // lower than v0.3's cones: the booking camera looks over them
+  for(const [x,z,w,d] of WALL_VIS){ q.box(x,3.5,z,w,7,d,0x6b7280); q.box(x,7.15,z,w,0.3,d,0x7d8594); }
+  const m=q.flush(); m.frustumCulled=false; return m;
+}
+const roadPaintM=roadPaint();   // road paint + bollards + trees + perimeter walls: ONE static draw call
 
 /* --- beacons: a tall translucent column that reads from across the map (subways green, the station blue) --- */
 function addBeam(x,z,color){
@@ -480,7 +728,29 @@ function inCar(px,pz,r){
   const t=clamp(((px-A.x)*ex+(pz-A.z)*ez)/l2,0,1);
   return Math.hypot(px-A.x-t*ex,pz-A.z-t*ez)<rr;
 }
-function collidePerson(px,pz,r){
+/* wall clearance of a spot: distance to the nearest building face, bollard or world edge */
+function wallClear(x,z){
+  let m=Math.min(x+CLX,CLX-x,z+CLZ,CLZ-z);
+  for(const b of BUILDINGS)m=Math.min(m,Math.hypot(x-clamp(x,b.x1,b.x2),z-clamp(z,b.z1,b.z2)));
+  for(const bo of BOLLARDS)m=Math.min(m,Math.hypot(x-bo.x,z-bo.z)-bo.r);
+  return m;
+}
+/* EXIT: hop out on the cruiser's right flank (v0.3) unless a wall is right there, then the other
+   flank if it has more room; face along the car, or back along it / out from it if that way is blocked
+   (a touch cop jogs at once: pointed into a car-wall wedge he'd be stuck) */
+function exitSpot(){
+  const sx=Math.cos(car.a), sz=-Math.sin(car.a), R=0.45;
+  const side=s=>{ const rx=car.x+s*sx*2.2, rz=car.z+s*sz*2.2, q=collidePerson(rx,rz,R);
+    return {s,x:q[0],z:q[1],ok:Math.hypot(q[0]-rx,q[1]-rz)<1e-6,c:wallClear(q[0],q[1])}; };
+  const A=side(1), B=side(-1);
+  const P=(A.ok&&A.c>=1)?A:(B.ok&&!A.ok)||(B.ok===A.ok&&B.c>A.c)?B:A;
+  const open=h=>{ const x=P.x+Math.sin(h)*2, z=P.z+Math.cos(h)*2, q=collidePerson(x,z,R);
+    return Math.hypot(q[0]-x,q[1]-z)<1e-6&&wallClear(x,z)>=R+0.3; };
+  const out=Math.atan2(P.s*sx,P.s*sz);
+  const a=[car.a,car.a+Math.PI,out].find(open);
+  return {x:P.x,z:P.z,a:a===undefined?out:a};
+}
+function collidePerson(px,pz,r,prev){
   [px,pz]=collide(px,pz,r);
   const [A,B]=carCircles(), rr=r+A.r;
   const ex=B.x-A.x,ez=B.z-A.z,l2=ex*ex+ez*ez;
@@ -505,6 +775,10 @@ function collidePerson(px,pz,r){
     }
     const p1=collide(cx+nx*rr,cz+nz*rr,r);
     if(gap(p1)>=rr-1e-9)return p1;
+    /* pinched between the car and a wall: a mover whose last spot is still clear stays put (mv ~0,
+       so threat() reads him as pinned) instead of hopping between capsule spots every frame */
+    if(prev){ const q=collide(prev[0],prev[1],r);
+      if(Math.hypot(q[0]-prev[0],q[1]-prev[1])<1e-6&&gap(q)>=rr-1e-9)return q; }
     let best=p1,bd=Infinity;
     for(const C of [{x:cx,z:cz},A,B])for(let k=1;k<=12;k++)for(const sg of (k===12?[1]:[1,-1])){
       const th=sg*k*Math.PI/12, c=Math.cos(th), sn=Math.sin(th);
@@ -570,19 +844,88 @@ const blobM=new THREE.Mesh(new THREE.CircleGeometry(2.4,20),
   new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.26}));
 blobM.rotation.x=-Math.PI/2; blobM.position.y=0.06; scene.add(blobM);
 
-/* ============ people ============ */
-function makePerson(torsoMat,hatColor){
-  const g=new THREE.Group();
-  const legs=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.7,0.32),M(0x24303f));
-  legs.position.y=0.35; g.add(legs);
-  const torso=new THREE.Mesh(new THREE.BoxGeometry(0.66,0.75,0.4),torsoMat);
-  torso.position.y=1.07; g.add(torso);
-  const head=new THREE.Mesh(new THREE.SphereGeometry(0.27,12,10),M(0xf0c8a0));
-  head.position.y=1.72; g.add(head);
-  const hat=new THREE.Mesh(new THREE.CylinderGeometry(0.29,0.29,0.16,12),M(hatColor));
-  hat.position.y=1.92; g.add(hat);
+/* ============ people ============
+   Chunky cartoon folk (SPEC art ruling): legs 0.5, a wide torso, a BOX head 0.55 with the face painted on its
+   FRONT only (+z = the way he walks), arms that swing with speed (tick). Static solid-colour parts (legs, hats,
+   badge, sack, moustache) are one QuadBatch mesh per person → ~5 draw calls a person.
+   Faces: 4 shared 64×64 mood canvases (fillRect only); a mood swap is faceMat.map = MOODS.x (no new draw call). */
+const SKIN='#f0c8a0';
+function makeMoodTextures(mask){
+  const out={};
+  for(const mood of['normal','scared','dizzy','grumpy']){
+    const c=document.createElement('canvas'); c.width=64; c.height=64; const x=c.getContext('2d');
+    const r=(col,a,b,w,h)=>{x.fillStyle=col; x.fillRect(a,b,w,h);};
+    r(SKIN,0,0,64,64);
+    if(mask)r('#15161a',0,18,64,16);                       // bandit mask band across the eyes
+    const E=mask?'#ffffff':'#1d1f24', P='#1d1f24';
+    if(mood==='normal'){ r(E,14,21,10,10); r(E,40,21,10,10); if(mask){r(P,17,24,5,5); r(P,43,24,5,5);}
+      r('#8a3b2b',20,44,24,4); r('#8a3b2b',16,40,4,4); r('#8a3b2b',44,40,4,4); }            // smile
+    if(mood==='scared'){ r('#fff',11,18,16,15); r('#fff',37,18,16,15); r(P,16,23,6,6); r(P,42,23,6,6);
+      r('#5a1f16',26,40,12,14); r(P,10,12,16,3); r(P,38,12,16,3); }                          // wide eyes, O mouth
+    if(mood==='dizzy'){ for(const ox of[13,39])for(let k=0;k<10;k++){ r(E,ox+k,20+k,3,3); r(E,ox+9-k,20+k,3,3); }   // X eyes
+      for(let k=0;k<6;k++)r('#8a3b2b',16+k*6,42+(k%2)*4,6,4); }                             // wobbly mouth
+    if(mood==='grumpy'){ r(E,14,24,10,7); r(E,40,24,10,7); if(mask){r(P,17,25,5,5); r(P,43,25,5,5);}
+      for(let k=0;k<4;k++){ r(P,12+k*3,14+k*2,4,3); r(P,49-k*3,14+k*2,4,3); }             // cross brows
+      r('#8a3b2b',20,46,24,4); r('#8a3b2b',16,50,4,4); r('#8a3b2b',44,50,4,4); }            // frown
+    const t=new THREE.CanvasTexture(c); t.magFilter=THREE.NearestFilter; out[mood]=t;
+  }
+  return out;
+}
+const MOODS=makeMoodTextures(false), MOODS_MASK=makeMoodTextures(true);
+/* the head: a 0.55 cube from our own arrays — the front (+z) face shows the whole canvas, the other five faces
+   sample one skin-coloured texel (uv 0.05,0.05: the canvas corner is always plain skin) */
+const HEAD_GEO=(()=>{
+  const h=0.275, P=[], N=[], U=[], I=[];
+  const F=[[[0,0,1],[-1,0,0],[0,1,0]],[[0,0,-1],[1,0,0],[0,1,0]],[[1,0,0],[0,0,1],[0,1,0]],
+           [[-1,0,0],[0,0,-1],[0,1,0]],[[0,1,0],[-1,0,0],[0,0,-1]],[[0,-1,0],[-1,0,0],[0,0,1]]];
+  F.forEach(([n,u,v],f)=>{ const b=P.length/3;
+    for(const [su,sv] of[[-1,-1],[1,-1],[1,1],[-1,1]]){
+      P.push((n[0]+su*-u[0]+sv*v[0])*h,(n[1]+su*-u[1]+sv*v[1])*h,(n[2]+su*-u[2]+sv*v[2])*h); N.push(n[0],n[1],n[2]);
+      if(f===0)U.push((su+1)/2,(sv+1)/2); else U.push(0.05,0.05); }
+    I.push(b,b+1,b+2,b,b+2,b+3); });
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(P),3));
+  g.setAttribute('normal',new THREE.BufferAttribute(new Float32Array(N),3));
+  g.setAttribute('uv',new THREE.BufferAttribute(new Float32Array(U),2));
+  g.setIndex(I); return g;
+})();
+const LEG_Y=0.5, TORSO_Y=0.87, HEAD_Y=1.5;
+const armGeo=new THREE.BoxGeometry(0.2,0.62,0.22); armGeo.translate(0,-0.27,0);   // pivot at the shoulder
+/* makePerson(torsoMat, opts): opts.hat 'cap'|'beanie'|'none', capColor, mask (bandit face set), sack, badge, stache,
+   arm (sleeve colour). Returns a Group with userData.{head,face,armL,armR,torso,moods}; tick reads userData only */
+function makePerson(torsoMat,opts){
+  if(typeof opts==='number')opts={hat:'cap',capColor:opts};
+  opts=opts||{};
+  const g=new THREE.Group(), q=new QuadBatch();
+  q.box(-0.14,LEG_Y/2,0,0.22,LEG_Y,0.28,0x24303f); q.box(0.14,LEG_Y/2,0,0.22,LEG_Y,0.28,0x24303f);   // chunky legs
+  q.box(-0.14,0.05,0.04,0.24,0.1,0.34,0x16181c); q.box(0.14,0.05,0.04,0.24,0.1,0.34,0x16181c);       // shoes
+  const top=HEAD_Y+0.275;
+  if(opts.hat==='cap'){ const cc=opts.capColor||0x16254a;
+    q.box(0,top+0.07,0,0.6,0.14,0.6,cc); q.box(0,top+0.02,0.36,0.5,0.04,0.2,0x0f1522);           // peaked cap + brim
+    if(opts.badge)q.box(0,top+0.08,0.305,0.12,0.08,0.02,0xffd23f); }
+  if(opts.hat==='beanie'){ q.dome(0,top-0.04,0,0.33,0x2b2d33); q.box(0,top-0.02,0,0.62,0.08,0.62,0x3a3d45);   // beanie + cuff
+    q.dome(0,top+0.33,0,0.11,0xe23b3b,true); }                                                            // pom-pom
+  if(opts.badge)q.box(-0.2,TORSO_Y+0.15,0.23,0.12,0.14,0.03,0xffd23f);                               // gold badge
+  if(opts.sack){ q.box(0.24,TORSO_Y+0.12,-0.34,0.34,0.42,0.26,0xc9a66b); q.box(0.24,TORSO_Y+0.37,-0.33,0.14,0.08,0.12,0x8d6e3f); }   // over one shoulder: the stripes still show
+  if(opts.stache)q.box(0,HEAD_Y-0.06,0.29,0.34,0.07,0.05,0x3a2a1c);
+  q.flush(g);
+  const torso=new THREE.Mesh(new THREE.BoxGeometry(0.78,0.74,0.44),torsoMat);
+  torso.position.y=TORSO_Y; g.add(torso);
+  const moods=opts.mask?MOODS_MASK:MOODS;
+  const face=new THREE.MeshLambertMaterial({map:moods.normal}); face.map=moods.normal;
+  const head=new THREE.Mesh(HEAD_GEO,face);
+  head.position.y=HEAD_Y; g.add(head); g.userData.head=head;
+  const sleeve=opts.arm!=null?M(opts.arm):torsoMat;
+  const armL=new THREE.Mesh(armGeo,sleeve), armR=new THREE.Mesh(armGeo,sleeve);
+  armL.position.set(-0.5,TORSO_Y+0.3,0); armR.position.set(0.5,TORSO_Y+0.3,0); g.add(armL,armR);
+  Object.assign(g.userData,{face,armL,armR,torso,moods});
   scene.add(g);
   return g;
+}
+/* arms swing with speed (m/s); visual only */
+function swingArms(p,speed,t){
+  const k=clamp(speed/6,0,1)*0.9, s=Math.sin(t*(6+speed*1.2))*k;
+  p.userData.armL.rotation.x=s; p.userData.armR.rotation.x=-s;
 }
 function stripeMat(){
   const c=document.createElement('canvas'); c.width=32; c.height=32;
@@ -591,8 +934,8 @@ function stripeMat(){
   const t=new THREE.CanvasTexture(c); t.magFilter=THREE.NearestFilter;
   return new THREE.MeshLambertMaterial({map:t});
 }
-const copM=makePerson(M(0x2b4a8c),0x1c2b4d);
-const crookM=makePerson(stripeMat(),0x333333);
+const copM=makePerson(M(0x1f5fd6),{hat:'cap',capColor:0x16254a,badge:true});
+const crookM=makePerson(stripeMat(),{hat:'beanie',mask:true,sack:true,arm:0x23262b});
 copM.visible=false;
 
 function textSprite(txt,color){
@@ -610,12 +953,7 @@ const lostS=textSprite('?','#ffc857');           // lost you
 const boltMiss=new THREE.MeshBasicMaterial({color:0xffd23f}), boltHit=new THREE.MeshBasicMaterial({color:0xffffff});
 const boltM=new THREE.Mesh(new THREE.BoxGeometry(0.06,0.06,1),boltMiss);   // taser bolt, scaled cop→aim
 boltM.visible=false; scene.add(boltM);
-const stars=[];
-for(let i=0;i<3;i++){
-  const s=new THREE.Mesh(new THREE.SphereGeometry(0.09,8,6),
-    new THREE.MeshBasicMaterial({color:0xffd94d}));
-  s.visible=false; scene.add(s); stars.push(s);
-}
+const stars=[0,1,2].map(()=>{const s=textSprite('★','#ffd23f'); s.scale.set(0.55,0.55,1); return s;});   // dizzy stars / dust (3 draw calls)
 
 /* ============ entities ============ */
 const car={x:-100,z:-88,a:Math.PI/2,speed:0,mv:0,mvRaw:0,mvPrev:0,wedged:false,contact:false};   // parked SW perimeter street, facing +x
@@ -633,16 +971,45 @@ const crook={x:0,z:0,a:0,speed:0,state:'calm',stam:6,tired:false,
   path:null,pi:0,target:-1,cuffT:0,alerted:false,warned:false,planHot:false,
   alertUntil:0,dbUntil:0,popUntil:0,glanceT:0,glanceUntil:0,qUntil:0,legT:0,forcedT:0,switchT:0,
   holdPlan:false,lostT:0,lost:false,dbCount:0,hitUntil:0,hitCount:0,revT:0,burstUntil:0,tasedT:0,juke:null,
-  inCar:false,slipT:0,bookedT:0};
+  inCar:false,slipT:0,bookedT:0,banSub:-1};   // banSub: a subway he may not use (slipped beside it)
 { const s=NODES[IX['4,3']]; crook.x=s.x; crook.z=s.z; }   // far NE corner
+/* each chase has a named villain: hash32(badge, chases so far) — never rand() (the seeded stream is the layout's) */
+const CROOK_NAMES=['Sneaky Pete','Big Lenny','Slippery Sal','Two-Socks Tony','Doughnut Dave','Wiggles McGee','Pickpocket Pam',
+  'The Noodle','Sticky Vic','Lil\' Squeaks','Muddy Mo','Fast Freddie','Sir Sneaks-a-Lot','Jellybean Joe','Tiptoe Tina',
+  'Grumbles','Captain Crumbs','Wobbly Walt','Nacho Nate','Bubbles Barnaby'];
+const CRIMES=['stole 400 donuts','swiped the mayor\'s goldfish','painted a moustache on the statue','took every left shoe in town',
+  'hid all the TV remotes','ate the bakery\'s display cake','let the zoo penguins out','stole the school\'s bell',
+  'swapped the salt and sugar','untied every shoelace at the park','took the slide from the playground','hogged all the swings',
+  'stole the ice-cream truck\'s song','put jelly in the fountain','borrowed a bus without asking','stole 99 rubber ducks',
+  'tickled the town clock','ran off with the pizza oven','hid the library\'s bookmarks','sneezed on the mayor\'s hat'];
+let dbgRespawns=0;   // debug #bRespawn only: a fresh name per manual respawn (0 in play → v0.4 names unchanged)
+/* never the same name twice in a row: walk the chain from a few counts back so the pick is a pure function of
+   (badge, count) — a clash with the previous crook's name steps to a different one (hash32, never Math.random) */
+function crookNameIdx(b,k){
+  const N=CROOK_NAMES.length; let prev=-1, i=-1;
+  for(let j=Math.max(0,k-24);j<=k;j++){
+    i=Math.floor(hash32(b,j)*N);
+    if(i===prev)i=(i+1+Math.floor(hash32(j,b)*(N-1)))%N;
+    prev=i;
+  }
+  return i;
+}
+function nameCrook(){
+  const b=Number(badge)|0, k=(career.booked|0)+(career.escapes|0)+dbgRespawns*1009;
+  let i=crookNameIdx(b,k); const N=CROOK_NAMES.length;
+  if(CROOK_NAMES[i]===crook.name)i=(i+1+Math.floor(hash32(k,b+1)*(N-1)))%N;   // debug respawns jump chains: still never twice in a row
+  crook.name=CROOK_NAMES[i];
+  crook.crime=CRIMES[Math.floor(hash32(k+7919,b)*CRIMES.length)];
+}
 let mode='drive';   // 'drive' | 'foot'
+let phase='patrol'; // 'patrol' | 'academy' — every academy branch keys on this (the crook AI never runs in the academy)
 let busts=0, escapes=0;
 
 /* ============ jail run + career ============
    The cuff is the midpoint: walk him to the car, drive him to Precinct 3, stop in the bay, BOOK. The escape
    meter fills while he is in custody and you dawdle; full = he slips the cuffs and a second chase starts.
    Three stars per booking (cuff · par 45 s · no paperwork) accumulate into a rank kept in localStorage. */
-const run={active:false,meter:0,alertT:0,cuffT:0,paperwork:0,slips:0,said50:false,said80:false,saidBay:false,hitT:0};
+const run={active:false,meter:0,alertT:0,cuffT:0,paperwork:0,slips:0,said50:false,said80:false,saidBay:false,hitT:0,enterT:-1e9};
 const RANKS=[['CADET',0],['OFFICER',6],['DETECTIVE',15],['SERGEANT',30]];
 function rankFor(s){let r='CADET';for(const[n,t]of RANKS)if(s>=t)r=n;return r;}
 function nextRank(s){for(const[n,t]of RANKS)if(s<t)return {n,t};return null;}
@@ -688,6 +1055,7 @@ function hudCareer(){
   $('carv').textContent=(badge?'#'+badge+' · ':'')+rankFor(career.stars)+' · '+career.stars+'★ · '+career.booked+' booked · '+career.escapes+' escaped';
 }
 hudCareer();
+nameCrook();
 /* par = alert → cuff (a never-alerted crook was sneaked up on: par met). 45 s: a worst-case straight run to a
    subway is ~28 s, so 45 forgives one cut-off, not two. Style = zero paperwork (taser hits are not scored). */
 function scoreBooked(now){
@@ -703,12 +1071,24 @@ function showCard(s){
   $('cardS').textContent=['★',s.par?'★':'☆',s.style?'★':'☆'].join(' ');
   $('cardL').textContent='cuff ✓ · par '+Math.round(s.parS)+'s/45s '+(s.par?'✓':'✗')+' · paperwork '+run.paperwork+' '+(s.style?'✓':'✗');
   $('cardR').textContent=r+' · '+career.stars+'★'+(nx?' · '+cap(nx.n)+' at '+nx.t:'');
-  $('card').classList.add('show');
+  cardN.textContent=crook.name?crook.name.toUpperCase()+' · wanted for: '+crook.crime:'';
+  $('card').classList.add('show'); popCard(s.promoted);
 }
 /* he slips the cuffs: out of the car on the far side from the cop's door (or where he stands), 3 s
    of 'slipped' (runs, not cuffable, not tazeable), then plain flee */
 function slip(now){
-  if(crook.inCar)[crook.x,crook.z]=collidePerson(car.x-Math.cos(car.a)*2.5,car.z+Math.sin(car.a)*2.5,0.45);
+  if(crook.inCar){                     // out of the far door; blocked (wall, capsule) → near door, behind, ahead
+    const sx=Math.cos(car.a),sz=-Math.sin(car.a),fx=Math.sin(car.a),fz=Math.cos(car.a);
+    let q=null;
+    for(const [ox,oz] of [[-sx*2.5,-sz*2.5],[sx*2.5,sz*2.5],[-fx*3.6,-fz*3.6],[fx*3.6,fz*3.6]]){
+      const px=car.x+ox,pz=car.z+oz, c=collidePerson(px,pz,0.45);
+      if(Math.hypot(c[0]-px,c[1]-pz)<0.3&&!inCar(c[0],c[1],0.45)){q=c;break;}
+    }
+    [crook.x,crook.z]=q||collidePerson(car.x-sx*2.5,car.z-sz*2.5,0.45);
+  }
+  crook.banSub=-1;                     // beside a subway: that one is closed to him (a chase, not an instant escape)
+  if(RULES.slipSubwayBan)for(const n of SUBWAYS)if(Math.hypot(crook.x-NODES[n].x,crook.z-NODES[n].z)<12){crook.banSub=n;break;}
+  if(RULES.parFromSlip)run.alertT=now;   // Q3: par after a slip counts from the slip
   crook.state='slipped'; crook.slipT=now; crook.inCar=false;
   run.slips++; career.slips++; saveCareer();
   run.meter=0; run.active=false; run.said50=run.said80=run.saidBay=false; crook.warned=false;
@@ -717,7 +1097,7 @@ function slip(now){
   crook.a=Math.atan2(crook.x-car.x,crook.z-car.z);
   crook.path=null; crook.pi=0; crook.target=-1;               // never seed the plan from the pre-cuff path
   plan(); crook.glanceT=now+rand(2500,3500); crook.legT=now;
-  say("💨 He slipped the cuffs — he's running!");
+  say("💨 He slipped the cuffs — he's running!"); emit('slip');
 }
 /* the escape meter, once per simulate(): fills on foot (25 s), fast with him left in the car or the car stopped
    outside the bay (4 s), drains at speed (8 s full→empty), holds in the bay. Reads the MEASURED car.mv so a
@@ -726,7 +1106,8 @@ function updateRun(dt,now){
   if(crook.state!=='custody'){run.active=false;}
   else{
     run.active=true;
-    const rate=!crook.inCar?0.04:mode==='foot'?0.25:inBay(car.x,car.z)?0:car.mv<3?0.25:car.mv>8?-0.12:0;
+    let rate=!crook.inCar?0.04:mode==='foot'?0.25:inBay(car.x,car.z)?0:car.mv<3?0.25:car.mv>8?-0.12:0;
+    if(rate>0&&crook.inCar&&mode==='drive'&&now-run.enterT<RULES.enterGraceS*1000)rate=0;   // Q2: grace after ENTER
     run.meter=clamp(run.meter+rate*dt,0,1);
     if(run.meter>=0.5&&!run.said50){run.said50=true;say("🔓 He's squirming — keep moving!");}
     if(run.meter>=0.8&&!run.said80){run.said80=true;say("🔓 He's nearly out of the cuffs!");}
@@ -795,6 +1176,11 @@ function calibrate(ms,done){
 
 const keys={left:false,right:false,gas:false,brake:false};
 let steerRaw=0, steerSm=0, touchSteer=0, goPointers=new Set();
+let steerPid=null, thumbUsed=false;   // the left-half steering pointer (a GO lift must not straighten it); first thumb steer seen
+const steerPtrs=new Map();             // every left-half steering pointer still down: id -> last clientX (newest last)
+/* what steers right now: keys (arrows) > thumb (no-tilt touch fallback) > tilt — picks instruction wording, never logic */
+function steerKind(){ return inputKind==='keys'?'keys':tilt.fallback?'thumb':'tilt'; }
+const THUMB_HINT='SLIDE LEFT THUMB TO STEER';
 
 function computeSteer(dt){
   let s;
@@ -823,47 +1209,52 @@ function placeMsg(){
 }
 addEventListener('resize',placeMsg);
 function say(t,ms){ placeMsg(); msgEl.textContent=t; msgEl.classList.add('show');
-  clearTimeout(msgT); msgT=setTimeout(()=>msgEl.classList.remove('show'),ms||2400); }
+  clearTimeout(msgT); msgT=setTimeout(()=>{msgEl.classList.remove('show'); radioPump();},ms||2400); }   // a held radio line goes next
 
 /* ============ context action ============ */
 const bAct=$('bAct');
 function affordance(){
   if(!started)return null;
+  if(phase==='academy')return academyAff();
   if(mode==='foot'){
-    if(performance.now()<cop.freezeUntil)return null;   // the cuff beat holds the camera on the pair
+    if(gnow()<cop.freezeUntil)return null;   // the cuff beat holds the camera on the pair
     if(crook.state==='flee'||crook.state==='calm'||crook.state==='tased'){
       if(Math.hypot(cop.x-crook.x,cop.z-crook.z)<2.6)return 'cuff';
     }
     if(crook.state!=='cuffed'&&Math.hypot(cop.x-car.x,cop.z-car.z)<3.5)return 'enter';
     return null;
   }
-  if(crook.state==='custody'&&crook.inCar&&inBay(car.x,car.z)&&car.mv<3)return 'book';
+  if(crook.state==='custody'&&crook.inCar&&inBay(car.x,car.z)&&car.mv<RULES.bookMaxMv)return 'book';   // Q2: the BOOK speed gate
   if(Math.abs(car.speed)<8)return 'exit';
   return 'slow';
 }
 function doAction(){
   const a=affordance();
+  if(phase==='academy'&&a==='cuff'){academyCuff();return;}   // cutouts, not the crook (stage 3)
   if(a==='cuff'){
-    crook.state='cuffed'; crook.cuffT=performance.now();
+    crook.state='cuffed'; crook.cuffT=gnow();
     cop.freezeUntil=crook.cuffT+2500;              // the cuff beat: cop stands over him
     busts++; $('busts').textContent=busts;
-    say('🚔 CUFFED! Nice work, officer.');
+    say('🚔 CUFFED! Nice work, officer.'); emit('cuff');
   }else if(a==='book'){
-    crook.state='booked'; crook.bookedT=performance.now(); run.active=false;
-    showCard(scoreBooked(crook.bookedT)); vib([30,30,30]);
+    crook.state='booked'; crook.bookedT=gnow(); run.active=false;
+    const sc=scoreBooked(crook.bookedT); showCard(sc); vib([30,30,30]);
+    emit('book',{stars:sc.n,promoted:sc.promoted}); if(sc.promoted)emit('rank',{rank:rankFor(career.stars)});
   }else if(a==='enter'){
     mode='drive'; copM.visible=false;
-    if(crook.state==='custody'){crook.inCar=true; say('Back in the cruiser — drive him to the station');}
+    if(crook.state==='custody'){crook.inCar=true; run.enterT=gnow(); say('Back in the cruiser — drive him to the station');}
     else say('Back in the cruiser');
+    emit('enter');
     if(crook.state==='flee'||crook.state==='slipped')plan();   // the threat changed shape: re-plan
   }else if(a==='exit'){                              // in custody he stays in the car (inCar): the meter runs at 0.25/s
-    mode='foot'; siren.on=false;                     // dismount = go quiet
+    mode='foot'; const wasOn=siren.on; siren.on=false;   // dismount = go quiet
+    emit('exit'); if(wasOn)emit('siren',{on:false});
     car.speed*=0.2;
-    const sx=Math.cos(car.a), sz=-Math.sin(car.a);
-    [cop.x,cop.z]=collidePerson(car.x+sx*2.2,car.z+sz*2.2,0.45);
-    cop.a=car.a; cop.speed=0;
+    const ex=exitSpot(); cop.x=ex.x; cop.z=ex.z;
+    cop.a=ex.a; cop.speed=0; cop.mv=0;
     copM.visible=true;
-    say(crook.state==='custody'&&crook.inCar?'He is in the back — do not leave him long':'On foot — tilt to weave, hold right side to sprint');
+    const k=steerKind();   // the v0.3 line stays for tilt; thumb / arrow players get their own verb
+    say(crook.state==='custody'&&crook.inCar?'He is in the back — do not leave him long':k==='thumb'?'On foot — thumb steers, hold right to run':k==='keys'?'On foot — arrow keys to steer and run':'On foot — tilt to weave, hold right side to sprint');
     if(crook.state==='flee'||crook.state==='slipped')plan();
   }else if(a==='slow'){
     say('Too fast — slow down to jump out');
@@ -880,12 +1271,13 @@ function updateActBtn(){
   else {bAct.textContent='—'; bAct.classList.add('off');}
   /* the tool slot: TAZE only with him in the cone (foot), SIREN only in the car — never both */
   bTaze.classList.toggle('hide',!tazeOK());
-  bSiren.classList.toggle('hide',mode!=='drive'||!started);
+  bSiren.classList.toggle('hide',mode!=='drive'||!started||academyCard());
   bSiren.classList.toggle('on',siren.on);
   $('c3').classList.toggle('on',siren.on);
-  $('pips').textContent='⚡'.repeat(taze.charges)+'○'.repeat(3-taze.charges);
+  $('pips').textContent=tazeTarget()===slider?'∞':'⚡'.repeat(taze.charges)+'○'.repeat(3-taze.charges);
+  updateHint(a);
 }
-bAct.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();if(e.pointerType!=='mouse')inputKind='touch';doAction();});
+bAct.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();if(paused)return;if(e.pointerType!=='mouse')inputKind='touch';doAction();});
 
 /* ============ taser + siren ============
    The taser is a window-maker, not a win button: an audible click, a lead on his heading, a 0.35 s flight
@@ -902,6 +1294,7 @@ const vib=x=>{ try{                                       // Chrome logs an erro
 }catch(e){} };
 let ac=null;
 function clickBlip(){                                    // 20 ms square blip — the tell he jukes on
+  if(globalThis.__sfx&&__sfx.click){__sfx.click();return;}   // the audio module (script#audio) owns it when present
   const AC=window.AudioContext||window.webkitAudioContext; if(!AC)return;
   try{
     ac=ac||new AC();
@@ -911,68 +1304,87 @@ function clickBlip(){                                    // 20 ms square blip �
 }
 /* hysteresis so the button does not flicker while a tilt-steered cop's heading wanders: it appears inside ±17.5° / 8 m
    and stays up to ±25° / 8.6 m (still inside the ±30° resolve cone) and for 250 ms after it last held */
+/* the taser's target: the crook on patrol, the rail slider on the academy range. tgtLive: he can be hit or spooked */
+function tazeTarget(){ return phase!=='academy'?crook:DRILLS[acad.step]&&DRILLS[acad.step].id==='taser'?slider:null; }
+const tgtLive=T=>!!T&&(T.state==='flee'||T.state==='calm');
 function tazeOK(){
-  const ok=tazeOKRaw(); if(ok)taze.okT=performance.now(); return ok;
+  const ok=tazeOKRaw(); if(ok)taze.okT=gnow(); return ok;
 }
 function tazeOKRaw(){
+  const T=tazeTarget();                                  // null in the academy outside the taser range
   if(!started||mode!=='foot'||taze.charges<=0||taze.phase!=='idle')return false;
-  if(crook.state!=='flee'&&crook.state!=='calm')return false;
-  const held=performance.now()-taze.okT<250, cone=held?0.44:0.305, dmax=held?8.6:8;
-  const dx=crook.x-cop.x,dz=crook.z-cop.z,d=Math.hypot(dx,dz); if(d<2.6||d>dmax)return false;   // <2.6: CUFF wins
-  const rv=Math.max(0,(Math.sin(crook.a)*dx+Math.cos(crook.a)*dz)/d*crook.speed);           // receding speed
+  if(!tgtLive(T))return false;
+  const held=gnow()-taze.okT<250, cone=held?0.44:0.305, dmax=held?8.6:8;
+  const dx=T.x-cop.x,dz=T.z-cop.z,d=Math.hypot(dx,dz); if(d<2.6||d>dmax)return false;   // <2.6: CUFF wins
+  const rv=Math.max(0,(Math.sin(T.a)*dx+Math.cos(T.a)*dz)/d*T.speed);           // receding speed
   if(d+rv*0.35>TAZE_R+(held?0.6:0))return false;         // a standing cop could not land it: no green button
   return Math.abs(wrapPi(Math.atan2(dx,dz)-cop.a))<cone;
 }
 /* roll: tests force juke / no-juke without touching Math.random; keys and buttons pass nothing */
 function fireTaze(now,roll){
   if(!tazeOK())return false;
-  taze.charges--; taze.phase='click'; taze.t0=now; taze.hit=false; vib(15); clickBlip();
-  taze.ax=crook.x+Math.sin(crook.a)*crook.speed*0.35; taze.az=crook.z+Math.cos(crook.a)*crook.speed*0.35;  // lead
-  let p=crook.state==='calm'?0:crook.tired?0.25:0.70; if(now<crook.burstUntil)p=0.5;
-  if(Math.hypot(crook.x-cop.x,crook.z-cop.z)<4)p*=0.5;
+  const T=tazeTarget();
+  if(roll===undefined&&T===slider)roll=rangeRoll(now);   // the range never draws Math.random
+  taze.charges--; taze.phase='click'; taze.t0=now; taze.hit=false; vib(15); clickBlip(); emit('tazeFire');
+  taze.ax=T.x+Math.sin(T.a)*T.speed*0.35; taze.az=T.z+Math.cos(T.a)*T.speed*0.35;  // lead
+  let p=T.state==='calm'?0:T.tired?0.25:0.70; if(now<T.burstUntil)p=0.5;
+  if(Math.hypot(T.x-cop.x,T.z-cop.z)<4)p*=0.5;
   if((roll===undefined?Math.random():roll)<p)startJuke(now);
   return true;
 }
+/* range juke roll (no Math.random): shot 1 (the first round-2 shot) always jukes (hash32(1,119)=0.10), so every
+   cadet hears the click once; later shots mix in the slider's rail position (1 cm) and the game clock (ms), so the
+   odds stay ~p per shot but no shot index is a safe one to learn */
+function rangeRoll(now){
+  return acad.shot<=1?hash32(acad.shot,119):hash32(acad.shot*7919+Math.round(slider.x*100),Math.round(now)^119);
+}
 /* sidestep ⟂ to the cop's line of sight, random side first; a side is valid when 2.8 m that way is clear */
 function startJuke(now){
-  const dx=crook.x-cop.x,dz=crook.z-cop.z,d=Math.hypot(dx,dz)||1, lx=-dz/d,lz=dx/d;
+  const T=tazeTarget();
+  if(T===slider){T.juke={dx:-T.dir,dz:0,until:now+350};return true;}   // the range: 2.8 m back along the rail
+  const dx=T.x-cop.x,dz=T.z-cop.z,d=Math.hypot(dx,dz)||1, lx=-dz/d,lz=dx/d;
   const first=Math.random()<0.5?1:-1;
   for(const sg of [first,-first]){
-    const px=crook.x+lx*sg*2.8,pz=crook.z+lz*sg*2.8, q=collidePerson(px,pz,0.45);
-    if(Math.hypot(q[0]-px,q[1]-pz)<0.3){crook.juke={dx:lx*sg,dz:lz*sg,until:now+350};return true;}
+    const px=T.x+lx*sg*2.8,pz=T.z+lz*sg*2.8, q=collidePerson(px,pz,0.45);
+    if(Math.hypot(q[0]-px,q[1]-pz)<0.3){T.juke={dx:lx*sg,dz:lz*sg,until:now+350};return true;}
   }
   return false;
 }
 function resolveTaze(now){
   if(taze.phase==='click'&&now-taze.t0>=350){
-    const dx=crook.x-cop.x,dz=crook.z-cop.z,d=Math.hypot(dx,dz);
-    const off=Math.hypot(crook.x-taze.ax,crook.z-taze.az), bearing=Math.abs(wrapPi(Math.atan2(dx,dz)-cop.a));
-    const live=crook.state==='flee'||crook.state==='calm';   // cuffed / escaped mid-flight: nothing to hit or spook
+    const T=tazeTarget();
+    const dx=T.x-cop.x,dz=T.z-cop.z,d=Math.hypot(dx,dz);
+    const off=Math.hypot(T.x-taze.ax,T.z-taze.az), bearing=Math.abs(wrapPi(Math.atan2(dx,dz)-cop.a));
+    const live=tgtLive(T);   // cuffed / escaped mid-flight: nothing to hit or spook
     const hit=live&&d<TAZE_R&&off<1.9&&bearing<0.52;           // ±30° resolve cone
     taze.hit=hit;
     if(hit){
-      crook.state='tased'; crook.tasedT=now; crook.juke=null; crook.lost=false; crook.lostT=0;
-      say("⚡ ZAP! He's down — cuff him!"); vib([30,50,30]);
+      T.state='tased'; T.tasedT=now; T.juke=null; T.lost=false; T.lostT=0;
+      say(T===crook?"⚡ ZAP! He's down — cuff him!":'📣 BZZT! Nice shot! ⚡'); vib([30,50,30]); emit('tazeHit');
     }else if(live){
-      crook.burstUntil=now+2000;
-      say(crook.juke?"⚡ Missed — he juked! Now he's spooked":"⚡ Missed — he's spooked and faster"); vib(60);
+      T.burstUntil=now+2000;
+      if(T===crook)say(T.juke?"⚡ Missed — he juked! Now he's spooked":"⚡ Missed — he's spooked and faster");
+      else say(T.juke?'📣 He heard you! Zap again from the line':'📣 Missed! Tap when he is in front 🎯');   // the range: never "get closer" (the pill says AIM FROM THE LINE)
+      vib(60);
+      emit('tazeMiss',{juked:!!T.juke});
     }
     taze.phase='flash';
   }
   if(taze.phase==='flash'&&now-taze.t0>=750){
     taze.phase='idle';
-    if(taze.charges===0&&!taze.hit)say("Taser's empty — run him down",3000);   // after a hit it waits for him to get up
+    if(taze.charges===0&&!taze.hit&&tgtLive(tazeTarget()))say("Taser's empty — run him down",3000);   // never over CUFFED   // after a hit it waits for him to get up
   }
 }
 function toggleSiren(){
-  if(!started||mode!=='drive')return false;
-  siren.on=!siren.on; vib(20);
-  say(siren.on?'🚨 Sirens! Everyone within a block heard you':'Siren off — quiet approach',3000);
+  if(!started||mode!=='drive'||academyCard())return false;   // matches the hidden SIREN button behind the grad card
+  siren.on=!siren.on; vib(20); emit('siren',{on:siren.on});
+  if(phase==='academy')say(!siren.on?'📣 Siren off':(DRILLS[acad.step].id==='gates'&&acad.gi>=3&&acad.gi<GATES.length)?'📣 Nice! Now zoom!':'📣 Siren on!',3000);   // no crook here
+  else say(siren.on?'🚨 Sirens! Everyone within a block heard you':'Siren off — quiet approach',3000);
   return true;
 }
 const bTaze=$('bTaze'), bSiren=$('bSiren');
-bTaze.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();if(e.pointerType!=='mouse')inputKind='touch';fireTaze(performance.now());});
-bSiren.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();if(e.pointerType!=='mouse')inputKind='touch';toggleSiren();});
+bTaze.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();if(paused)return;if(e.pointerType!=='mouse')inputKind='touch';fireTaze(gnow());});
+bSiren.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();if(paused)return;if(e.pointerType!=='mouse')inputKind='touch';toggleSiren();});
 
 /* ============ input ============ */
 /* last input family used. On touch the cop always jogs (SPEC: "always moving forward");
@@ -981,6 +1393,7 @@ let inputKind=(navigator.maxTouchPoints>0)?'touch':'keys';
 addEventListener('keydown',e=>{
   if(e.target&&e.target.tagName==='INPUT')return;
   if(e.repeat)return;
+  if(paused&&/^(Space|Key[HETL])$/.test(e.code)){e.preventDefault();return;}   // no actions under the pause veil
   let handled=true;
   switch(e.code){
     case 'ArrowLeft': case 'KeyA': keys.left=true; break;
@@ -990,7 +1403,7 @@ addEventListener('keydown',e=>{
     case 'Space': doAction(); break;
     case 'KeyH': { const a=affordance(); if(a==='cuff'||a==='book')doAction(); break; }
     case 'KeyE': { const a=affordance(); if(a==='enter'||a==='exit')doAction(); break; }
-    case 'KeyT': fireTaze(performance.now()); break;           // foot only (tazeOK)
+    case 'KeyT': fireTaze(gnow()); break;           // foot only (tazeOK)
     case 'KeyL': toggleSiren(); break;                          // drive only
     default: handled=false;
   }
@@ -1005,52 +1418,120 @@ addEventListener('keyup',e=>{
     case 'ArrowDown': case 'KeyS': keys.brake=false; break;
   }
 });
-addEventListener('blur',()=>{keys.left=keys.right=keys.gas=keys.brake=false;goPointers.clear();});
+/* every held pointer is forgotten: a pointerup lost to a background switch must not leave a ghost thumb that
+   later gets the wheel back (steerPtrs) or holds the gas (goPointers) */
+function dropTouches(){goPointers.clear(); steerPtrs.clear(); steerPid=null; touchSteer=0;}
+addEventListener('blur',()=>{keys.left=keys.right=keys.gas=keys.brake=false;dropTouches();});
 addEventListener('contextmenu',e=>e.preventDefault());
+/* pause: the game clock stops (gnow), tick() renders without simulating; on resume the frame gap is
+   discarded and held inputs are dropped. Only real hide/blur events (and the settings panel) pause */
+function setPaused(on){
+  on=!!on; if(on===paused)return paused;
+  if(on){pauseT0=performance.now(); paused=true; radioHold();}
+  else{pausedMs+=performance.now()-pauseT0; paused=false; clock.getDelta();
+    keys.left=keys.right=keys.gas=keys.brake=false; dropTouches(); radioPump();}
+  return paused;
+}
+function pauseVeil(){ if(!started)return; $('pause').classList.add('on'); setPaused(true); }
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')pauseVeil();});
+addEventListener('blur',pauseVeil);
+$('pause').addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();
+  $('pause').classList.remove('on');
+  if(!$('settings').classList.contains('open'))setPaused(false);
+  if(tilt.enabled)calibrate(600);
+});
 
 const cv=renderer.domElement;
 cv.addEventListener('pointerdown',e=>{
   if(e.pointerType!=='mouse')inputKind='touch';   // a desktop click (focus, on-screen button) keeps keys
+  if(e.isPrimary&&e.pointerType==='touch')dropTouches();   // first finger down: any pointer still tracked is a ghost
   if(e.clientX>innerWidth/2) goPointers.add(e.pointerId);
-  else if(tilt.fallback)
-    touchSteer=clamp((e.clientX-innerWidth/4)/(innerWidth*0.18),-1,1);
+  else{   // left thumbs are tracked even before the touch fallback turns on (a thumb resting through the countdown)
+    steerPtrs.delete(e.pointerId); steerPtrs.set(e.pointerId,e.clientX);   // newest touch takes the wheel
+    steerPid=e.pointerId;
+    if(tilt.fallback){ if(e.pointerType!=='mouse')thumbUsed=true;
+      touchSteer=clamp((e.clientX-innerWidth/4)/(innerWidth*0.18),-1,1); }
+  }
 });
 cv.addEventListener('pointermove',e=>{
-  if(tilt.fallback&&!goPointers.has(e.pointerId)&&e.buttons)
-    touchSteer=clamp((e.clientX-innerWidth/4)/(innerWidth*0.18),-1,1);
+  if(!steerPtrs.has(e.pointerId))return;   // only steering thumbs steer (a GO thumb sliding left does not)
+  steerPtrs.set(e.pointerId,e.clientX);
+  if(tilt.fallback&&e.pointerId===steerPid){ touchSteer=clamp((e.clientX-innerWidth/4)/(innerWidth*0.18),-1,1);
+    if(e.pointerType!=='mouse')thumbUsed=true; }
 });
 for(const ev of['pointerup','pointercancel','pointerleave'])
   cv.addEventListener(ev,e=>{
     goPointers.delete(e.pointerId);
-    if(tilt.fallback&&!e.buttons)touchSteer=0;
+    if(!steerPtrs.delete(e.pointerId))return;   // lifting GO keeps the wheel turned
+    if(e.pointerId===steerPid){                 // hand the wheel back to the newest thumb still down (palm / grip / double tap)
+      let last=null; for(const id of steerPtrs.keys())last=id;
+      steerPid=last;
+      if(tilt.fallback)touchSteer=last===null?0:clamp((steerPtrs.get(last)-innerWidth/4)/(innerWidth*0.18),-1,1);
+    }
   });
 
 /* ============ settings ============ */
-$('gear').addEventListener('pointerdown',e=>{e.stopPropagation();$('settings').classList.toggle('open');});
+/* every button inside #settings acts on 'click', not 'pointerdown': the panel scrolls (touch-action:auto), and a
+   thumb that lands on a button to scroll must not press it — the browser cancels the click once the touch pans */
+$('gear').addEventListener('pointerdown',e=>{e.stopPropagation();const open=$('settings').classList.toggle('open');
+  if(started)setPaused(open||$('pause').classList.contains('on'));});   // settings open = game paused; closing resumes
+/* House rules panel: one button per rule cycles its values (plain-English label, value word) */
+const RULE_UI=[
+  ['ramCost','Bumping him with the car costs',[['none','nothing'],['paperwork','paperwork'],['burst','he runs faster']]],
+  ['enterGraceS','Escape clock waits after he gets in',[[0,'no wait'],[2,'2 sec'],[4,'4 sec']]],
+  ['bookMaxMv','How slow to tap BOOK?',[[3,'slow'],[1,'stopped'],[6,'rolling']]],
+  ['parFromSlip','Clock restarts if he wiggles free',[[false,'no'],[true,'yes']]],
+  ['slipSubwayBan','No wiggling free near a subway',[[true,'yes'],[false,'no']]],
+  ['gradStars','Stars for graduating',[[0,'0 ★'],[1,'1 ★'],[3,'3 ★']]],
+];
+function renderRules(){
+  const box=$('rules'); box.innerHTML='';
+  for(const [k,label,vals] of RULE_UI){
+    const row=document.createElement('div'); row.className='row';
+    const sp=document.createElement('span'); sp.textContent=label;
+    const b=document.createElement('button'); b.className='tog'; b.id='rule_'+k;
+    const i=Math.max(0,vals.findIndex(v=>v[0]===RULES[k]));
+    b.textContent=vals[i][1]; b.classList.toggle('on',RULES[k]!==RULES_DEF[k]);
+    b.addEventListener('click',e=>{e.preventDefault();RULES[k]=vals[(i+1)%vals.length][0];saveRules();renderRules();});
+    row.appendChild(sp); row.appendChild(b); box.appendChild(row);
+  }
+}
+renderRules();
+$('tRules').addEventListener('click',e=>{const on=$('rules').classList.toggle('on');e.target.textContent=on?'hide':'show';});
 $('sens').addEventListener('input',e=>{
   tilt.maxDeg=+e.target.value;
   $('sensv').textContent=tilt.maxDeg+'° = full lock';
 });
-$('tInv').addEventListener('pointerdown',e=>{
+$('tInv').addEventListener('click',e=>{
   tilt.invert=!tilt.invert;
   e.target.textContent=tilt.invert?'on':'off';
   e.target.classList.toggle('on',tilt.invert);
 });
-$('tCurve').addEventListener('pointerdown',e=>{
+$('tCurve').addEventListener('click',e=>{
   tilt.expo=!tilt.expo;
   e.target.textContent=tilt.expo?'expo':'linear';
 });
-$('tDbg').addEventListener('pointerdown',e=>{
+$('tDbg').addEventListener('click',e=>{
   const on=$('debug').classList.toggle('on');
   e.target.textContent=on?'on':'off';
   e.target.classList.toggle('on',on);
 });
-$('bCal').addEventListener('pointerdown',()=>{
+$('bCal').addEventListener('click',()=>{
   say('Hold steady… calibrating');
   calibrate(800,()=>say('Zeroed ✓'));
 });
-$('bRespawn').addEventListener('pointerdown',()=>{respawnCrook();say('Crook respawned');});
-$('bReset').addEventListener('pointerdown',()=>{career.stars=career.booked=career.escapes=career.slips=0;saveCareer();hudCareer();say('Career reset');});
+$('bRespawn').addEventListener('click',()=>{if(phase==='academy')return;dbgRespawns++;respawnCrook();say('Crook respawned');});
+/* Reset career asks twice: the first tap only arms it ('Sure? Tap again'), and it disarms after 3 s */
+let resetArmed=0;
+$('bReset').addEventListener('click',()=>{
+  const b=$('bReset'); clearTimeout(resetArmed);
+  if(!resetArmed){ b.textContent='Sure? Tap again'; resetArmed=setTimeout(()=>{resetArmed=0; b.textContent='Reset career';},3000); return; }
+  resetArmed=0; b.textContent='Reset career';
+  career.stars=career.booked=career.escapes=career.slips=0;delete career.academy;saveCareer();hudCareer();say('Career reset');});
+$('tHints').addEventListener('click',e=>{
+  hintsOn=!hintsOn; try{localStorage.setItem('code3.hints',hintsOn?'on':'off');}catch(err){}
+  e.target.textContent=hintsOn?'on':'off'; e.target.classList.toggle('on',hintsOn); hintTxt=null;
+});
 
 function onOrient(){
   if(!started||tilt.fallback)return;
@@ -1065,6 +1546,10 @@ if(screen.orientation&&screen.orientation.addEventListener)
 function beginGame(){
   started=true;
   $('overlay').style.display='none';
+  if(startMode==='academy'){startAcademy({trial:!!(career.academy&&career.academy.grad),only:startOnly});return;}
+  sayOnDuty(); nameCrook(); dispatchRadio();
+}
+function sayOnDuty(){
   say((badge?'#'+badge+' '+rankFor(career.stars)+' on duty · ':'')+'find the crook — cuff him before he reaches a subway 🚇',3400);
 }
 function countdownThen(fn){
@@ -1085,20 +1570,56 @@ function renderBadges(){
     let st=0; try{const c=JSON.parse(localStorage.getItem('code3.career.'+x.n)); if(c)st=c.stars|0;}catch(e){}
     const el=document.createElement('button'); el.type='button';
     el.className='bchip'+(x.n===inp.value?' on':'');
-    el.textContent='#'+x.n+' · '+rankFor(st)+' '+st+'★';
+    el.textContent='#'+x.n+' · '+rankFor(st)+' '+st+'★'+(badgeGrad(x.n)?' 🎓':'');
     el.addEventListener('pointerdown',e=>{e.preventDefault();inp.value=x.n;renderBadges();});
     box.appendChild(el);
   }
   box.style.display=b.list.length?'flex':'none';
+  /* mode: only a brand-new career is steered (not forced) to the ACADEMY — a v0.3 veteran (stars or bookings, no
+     academy record) and graduates default to PATROL; a hand pick is kept per badge (career.startMode) across launches */
+  const g=badgeGrad(inp.value), c=badgeCareer(inp.value);
+  const fresh=!c||((c.stars|0)===0&&(c.booked|0)===0&&!c.academy);
+  const kept=c&&(c.startMode==='patrol'||c.startMode==='academy')?c.startMode:null;
+  if(!urlMode&&modePicked!==inp.value)startMode=kept||(!g&&fresh?'academy':'patrol');
+  $('segAcad').textContent=g?'🎓 TIME TRIAL':'🎓 ACADEMY';
+  $('segPatrol').classList.toggle('on',startMode==='patrol'); $('segAcad').classList.toggle('on',startMode==='academy');
 }
+/* start mode: 'patrol' | 'academy'. ?academy preselects the academy; ?drill=slalom|gates|lineup|taser runs one drill
+   as a time trial. modePicked: the badge the kid picked a segment for by hand (his pick sticks for that badge) */
+let startMode='patrol', startOnly=null, urlMode=false, modePicked=null;
+/* the stored career for a badge number (the v0.3 single career when this phone has no badges yet), or null */
+function badgeCareer(n){
+  try{let c=n?JSON.parse(localStorage.getItem('code3.career.'+n)):null;
+    if(!c&&!loadBadges().list.length)c=JSON.parse(localStorage.getItem('code3.career'));
+    return c&&typeof c==='object'?c:null;}catch(e){return null;}
+}
+function badgeGrad(n){
+  try{const c=JSON.parse(localStorage.getItem(n?'code3.career.'+n:'code3.career')); return !!(c&&c.academy&&c.academy.grad);}catch(e){return false;}
+}
+function applyUrlMode(){
+  try{
+    const q=String(location.search||''), d=q.match(/[?&]drill=(slalom|gates|lineup|taser)\b/);
+    if(d||/[?&]academy(?![\w-])/.test(q)){urlMode=true; startMode='academy'; startOnly=d?d[1]:null;}
+  }catch(e){}
+  return startMode;
+}
+function pickMode(m){ startMode=m; modePicked=$('badgeIn').value; renderBadges(); }
+$('segPatrol').addEventListener('pointerdown',e=>{e.preventDefault();pickMode('patrol');});
+$('segAcad').addEventListener('pointerdown',e=>{e.preventDefault();pickMode('academy');});
+applyUrlMode();
 { const b=loadBadges(); if(b.current)$('badgeIn').value=b.current; }   // prefill the last badge once
 renderBadges();
 $('badgeIn').addEventListener('input',renderBadges);
 $('badgeIn').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('badgeIn').blur();
   const touch=('ontouchstart' in window)||(window.matchMedia&&matchMedia('(pointer:coarse)').matches);
   if(!touch)$('alt').click();}});                     // phones: keypad Go/Done must not skip the tilt start
-function startWithBadge(){ const n=selectBadge($('badgeIn').value); $('badgeIn').value=n; return n; }
-$('bBadge').addEventListener('pointerdown',()=>location.reload());
+function startWithBadge(){
+  const picked=!urlMode&&modePicked!==null&&modePicked===$('badgeIn').value;
+  const n=selectBadge($('badgeIn').value); $('badgeIn').value=n;
+  if(picked&&career.startMode!==startMode){career.startMode=startMode; saveCareer();}   // his PATROL pick survives a relaunch
+  return n;
+}
+$('bBadge').addEventListener('click',()=>location.reload());
 
 $('bigStart').addEventListener('click',async()=>{
   startWithBadge();
@@ -1275,7 +1796,7 @@ function seedLegs(opts){
    (double-back) is dropped and the current path kept (returns false: no ping-pong under a car that turns as
    fast as he does) */
 function plan(opts){
-  const th=threat(), now=performance.now();
+  const th=threat(), now=gnow();
   const seeds=seedLegs(opts);
   const snap={path:crook.path,pi:crook.pi,target:crook.target,planHot:crook.planHot,switchT:crook.switchT,dbUntil:crook.dbUntil,dbCount:crook.dbCount};
   const onNode=i=>Math.hypot(crook.x-NODES[i].x,crook.z-NODES[i].z)<reachR(i);
@@ -1294,7 +1815,7 @@ function plan(opts){
       }
     }
     let best=-1,gd=Infinity;
-    for(const s of SUBWAYS)if(dist[s]<gd){gd=dist[s];best=s;}
+    for(const s of SUBWAYS)if(s!==crook.banSub&&dist[s]<gd){gd=dist[s];best=s;}
     /* goal hysteresis: keep the subway he is committed to unless the new best is clearly better
        (25 % + 10 m), or he has been on this goal 8 s and it is better at all; never flip within 10 m of it.
        A hot (cornered) plan is always the least-bad route: its costs are all inflated */
@@ -1364,15 +1885,18 @@ function respawnCrook(){
   crook.lostT=0; crook.lost=false; crook.dbCount=0;
   crook.hitUntil=0; crook.hitCount=0; crook.revT=0;
   crook.burstUntil=0; crook.tasedT=0; crook.juke=null;
-  crook.inCar=false; crook.slipT=0; crook.bookedT=0; cop.freezeUntil=0;
+  crook.inCar=false; crook.slipT=0; crook.bookedT=0; crook.banSub=-1; cop.freezeUntil=0; run.enterT=-1e9;
   run.active=false; run.meter=0; run.alertT=0; run.cuffT=0; run.paperwork=0; run.slips=0;
   run.said50=run.said80=run.saidBay=false; $('card').classList.remove('show');
   taze.charges=3; taze.phase='idle'; taze.hit=false; taze.okT=-1e9;   // a bolt in flight at the old crook is void
   crookM.rotation.z=0;
+  nameCrook();                                             // after the rand() pick: hash32 only
+  radioQ=[]; if(!radioEsc){clearTimeout(radioTm); $('radio').classList.remove('show');}   // drop old-crook dispatch lines; the got-away line keeps its 3.5 s (L6d)
+  emit('spawn');
 }
 /* HUD line for the crook — first match wins */
 function crookLabel(){
-  const now=performance.now(), s=crook.state;
+  const now=gnow(), s=crook.state;
   if(s==='calm')return 'unaware';
   if(s==='flee'){
     if(now<crook.hitUntil)return 'staggered!';
@@ -1397,6 +1921,7 @@ function alertCrook(now,th){
   crook.glanceT=crook.alertUntil+rand(2500,3500); crook.legT=now;
   if(!crook.alerted)run.alertT=now;                          // par clock starts on the first alert of this crook
   crook.alerted=true;
+  emit('alert',{again});
   say(again?"❗ He spotted you again!":siren.on?"❗ He heard the siren — bolting for a subway!":"❗ He heard you — he's bolting for a subway!");
 }
 function updateCrook(dt,now){ crookStep(dt,now); crookHud(); }
@@ -1448,15 +1973,17 @@ function crookStep(dt,now){
     return;
   }
   // fleeing — arrival is checked on position alone, so a stale path can never overshoot the entrance
+  if(crook.banSub>=0&&Math.hypot(crook.x-NODES[crook.banSub].x,crook.z-NODES[crook.banSub].z)>30)crook.banSub=-1;
   for(const s of SUBWAYS)if(Math.hypot(crook.x-NODES[s].x,crook.z-NODES[s].z)<2.2){
+    if(s===crook.banSub)continue;   // slipped beside it: closed to him until he is 30 m clear (the slip-ban house rule)
     crook.state='escaped'; crook.cuffT=now;
     escapes++; $('esc').textContent=escapes; career.escapes++; saveCareer(); hudCareer();
-    say('💨 He got away — down the subway!');
+    say('💨 He got away — down the subway!'); emit('escape');
     return;
   }
   /* lost you: 3 s out of earshot (60 m, or 1.5× your hearing radius) → he walks; hearing you again re-alerts */
   crook.lostT=d>Math.max(60,1.5*hr)?crook.lostT+dt:0;
-  if(!crook.lost&&crook.lostT>3){crook.lost=true;crook.qUntil=now+1500;}
+  if(!crook.lost&&crook.lostT>3){crook.lost=true;crook.qUntil=now+1500;emit('lost');}
   if(crook.lost&&d<hr){alertCrook(now,th);}
   /* re-plan triggers: the alert hold ending, a look-back every ~3 s, a corner reached, the leg ahead cut off */
   if(crook.holdPlan&&now>=crook.alertUntil){crook.holdPlan=false;plan();}
@@ -1464,7 +1991,7 @@ function crookStep(dt,now){
      back as fast as he can turn is dodged on the sidewalk, not out-thought; a parked car or a cop on foot keeps
      the normal rules (a held leg would run him up to a roadblock) */
   const noRev=th.car&&Math.abs(car.speed)>8&&crook.revT>0&&now-crook.revT<5000;
-  if(now>=crook.glanceT){crook.glanceT=now+rand(2500,3500);crook.glanceUntil=now+500;plan({noRev});}
+  if(now>=crook.glanceT){crook.glanceT=now+rand(2500,3500);crook.glanceUntil=now+500;emit('glance');plan({noRev});}
   if(crook.path&&crook.pi<crook.path.length){
     const i=crook.path[crook.pi];
     if(Math.hypot(crook.x-NODES[i].x,crook.z-NODES[i].z)<reachR(i)){crook.pi++;if(!plan({noRev})&&crook.pi>=crook.path.length)plan();}
@@ -1526,14 +2053,583 @@ function crookStep(dt,now){
      event, not a bounce; the car is long past by the time he is up */
   if(now>=crook.hitUntil&&Math.abs(car.speed)>10&&inCar(nx,nz,0.45)){
     crook.hitUntil=now+600; crook.hitCount++; crook.speed=0;
+    const ram=RULES.ramCost; if(ram==='paperwork')run.paperwork++; else if(ram==='burst')crook.burstUntil=now+2600;   // Q1
     crook.alertUntil=Math.min(crook.alertUntil,now); crook.dbUntil=Math.min(crook.dbUntil,now);
-    say("💥 Clipped him — he's reeling!");
+    say("💥 Clipped him — he's reeling!"); emit('clip');
   }
   [crook.x,crook.z]=collidePerson(nx,nz,0.45);
   if(!crook.warned&&crook.target>=0
      &&Math.hypot(crook.x-NODES[crook.target].x,crook.z-NODES[crook.target].z)<30){
     crook.warned=true; say("🚇 He's almost at the subway — cut him off!");
   }
+}
+
+/* ============ academy (v0.4) ============
+   Tutorial + time trial on the real district map, no fail state. A new badge is steered here from the start
+   screen (never forced). Drills are data: {id, mode, hint (string | fn), line (Sgt. Whistle, ≤8 words + 1 emoji),
+   setup(now), update(dt,now), aff() → the context-button affordance, done(now), target() → tracker {x,z,lab}}.
+   Stage 3 splices 'lineup','taser','return' in before 'graduate'. The crook AI never runs here (simulate()).
+   Randomness: none — props are fixed data, built lazily on the first startAcademy() (the seeded stream is untouched). */
+/* PROVISIONAL lap medals (s, penalties included). The scripted harness drive (test/academy-drive.test.mjs: keys,
+   22 m/s cap, no siren, clean, weaving the slalom) laps slalom + gates in 21.3 s; gold ≈ +20 %, silver = gold +20 %, bronze = silver +20 %.
+   Keyboard-tuned, not phone-real (tilt is slower): re-tune after a playtest */
+const ACADEMY_PAR={gold:25,silver:30,bronze:36,provisional:true};
+const SLALOM={start:-92,finish:-6,z:-84};
+const CONES=[];                                            // logic state; meshes live in acadProps (visual only, never BOLLARDS)
+for(let i=0;i<7;i++)CONES.push({x:-86+12*i,z:i%2?-86.5:-81.5,hit:false,tipT:0});
+const GATES=[[28,-84],[56,-56],[56,0],[28,28],[-28,28],[-56,10]];   // street centres, in order; passed within 5 m
+const GATE_R=5;
+const acad={step:0,drillT0:0,lapT0:0,pen:0,times:{},trial:false,only:null,holdT:0,gi:0,
+  pen0:0,lap:0,lapEnd:0,lapPen:0,newBest:false,medal:'',pair:0,robbers:0,nextPopT:0,shot:0,hits:0,shotT:-1,slx:0};
+let acadProps=null;
+const ts=now=>Math.max(now,1);                            // a clock stamp is never 0 (0 = "not started")
+const fmtT=s=>{const r=Math.round(Math.max(0,s)*10)/10, m=Math.floor(r/60); return m+':'+(r-m*60).toFixed(1).padStart(4,'0');};
+function placeCar(x,z,a){
+  Object.assign(car,{x,z,a,speed:0,mv:0,mvRaw:0,mvPrev:0,wedged:false,contact:false});
+  camPos.set(x-Math.sin(a)*15,7.5,z-Math.cos(a)*15);
+}
+/* ---- the foot half (stage 3): the park, centre (-28,0), hedge inner faces at x -48.8/-7.2, z -20.8/20.8 ----
+   Line-up (north half): plywood cutouts pop up in pairs, one robber + one decoy; cuff the robber, not Grandma.
+   Taser range (south half): a cutout slides on a rail; the REAL taser code aims at it through tazeTarget().
+   Spots and rail are fixed data; picks use hash32 (no Math.random). Cutouts are visual only: no colliders */
+const PARK={x:-28,z:0};
+const CUTOUT_SPOTS=[[-16,-6],[-10,-5],[-4,-7],[2,-5],[8,-6],[14,-8],[-8,-12],[4,-12]].map(([x,z])=>({x:PARK.x+x,z:PARK.z+z}));
+const DECOYS=['grandma','mail','hotdog'];
+const OOPS={grandma:"📣 OOPS! That's Grandma! 👵",mail:"📣 OOPS! That's the mail carrier! 📬",hotdog:"📣 OOPS! That's the hot-dog guy! 🌭"};
+const cutouts=[0,1].map(()=>({kind:'robber',x:0,z:0,yaw:0,up:false,t0:0,fold:0,dizzyT:0}));
+const RAIL={x1:-34,x2:-22,z:6}, RAIL_V=[3.5,4.2,5.0], FIRE_Z=12.5;   // stand on the firing line (6.5 m back) and face north
+const slider={x:RAIL.x1,z:RAIL.z,a:Math.PI/2,speed:0,state:'calm',tired:false,burstUntil:0,juke:null,dir:1,tasedT:0};
+const tazeRound=()=>Math.min(3,acad.shot+1);
+/* the firing line: a 3 m band across the whole rail. On touch the cop always jogs, so the range holds him still
+   while he stands on it with GO up (he turns in place to aim; GO sprints him off). Academy only — patrol moves as v0.3 */
+/* TURN only when the cadet really is turned away from a live slider (the show cone); out of range at a rail end,
+   a shot in flight or him lying tased is a wait, not an aim fix — a kid obeying TURN would twist off a good aim */
+const facingAway=()=>tgtLive(slider)&&Math.abs(wrapPi(Math.atan2(slider.x-cop.x,slider.z-cop.z)-cop.a))>0.305;
+const onFiringLine=()=>Math.abs(cop.z-FIRE_Z)<=1.5&&cop.x>=RAIL.x1&&cop.x<=RAIL.x2;
+const rangeHold=()=>phase==='academy'&&mode==='foot'&&!!DRILLS[acad.step]&&DRILLS[acad.step].id==='taser'&&onFiringLine();
+/* a cadet on foot west of the park (the bay) and off its west gap is led to the gap first: the
+   straight line to the cutouts / firing line runs into the hedge (x -50..-48.8, open at |z|<2 with a
+   bollard at 0). The beacon sits in the lane on his side of the bollard. */
+function parkGate(){
+  const gx=PARK.x-22;
+  if(mode!=='foot'||cop.x>=gx+1.2||Math.abs(cop.z-PARK.z)<=1.5)return null;
+  return {x:gx,z:PARK.z+(cop.z<PARK.z?-1.2:1.2),lab:'Gate'};
+}
+function footStart(){                                      // ?drill=lineup|taser: on foot at the west park gate, car in the bay
+  placeCar(-65,0,-Math.PI/2);
+  mode='foot'; copM.visible=true;
+  Object.assign(cop,{x:-52,z:0,a:Math.PI/2,speed:0,mv:0,freezeUntil:0});
+  camPos.set(-52-8.5,4.4,0);
+}
+function popPair(now){
+  const r=acad.pair++, a=Math.floor(hash32(r,1)*8)%8, b=(a+1+Math.floor(hash32(r,2)*7)%7)%8, rf=hash32(r,3)<0.5;
+  const kinds=rf?['robber',DECOYS[r%3]]:[DECOYS[r%3],'robber'];
+  [a,b].forEach((si,i)=>{ const S=CUTOUT_SPOTS[si];
+    Object.assign(cutouts[i],{kind:kinds[i],x:S.x,z:S.z,yaw:Math.atan2(-36-S.x,4-S.z),up:true,t0:ts(now),fold:0,dizzyT:0}); });
+  emit('popup');
+}
+function nearestCutout(){                                 // upright only: a folded board never offers CUFF
+  let best=null,bd=2.6;
+  for(const c of cutouts)if(c.up&&!c.fold){const d=Math.hypot(cop.x-c.x,cop.z-c.z); if(d<bd){bd=d;best=c;}}
+  return best;
+}
+function academyCuff(){
+  if(!DRILLS[acad.step]||DRILLS[acad.step].id!=='lineup')return;
+  const now=gnow(), c=nearestCutout(); if(!c)return;
+  for(const k of cutouts)if(k.up&&!k.fold)k.fold=ts(now);  // the pair folds; the next pops 0.8 s later
+  acad.nextPopT=now+800;
+  if(c.kind==='robber'){
+    cop.freezeUntil=now+600; c.dizzyT=ts(now); acad.robbers++;
+    say('📣 GOT HIM! Nice cuff! 🚔'); vib(30); emit('cuffCutout');
+  }else{
+    cop.freezeUntil=now+300; acad.pen+=3;
+    say(OOPS[c.kind]); vib(60); emit('decoy',{kind:c.kind});
+  }
+}
+function resetSlider(){
+  Object.assign(slider,{x:RAIL.x1,z:RAIL.z,dir:1,a:Math.PI/2,speed:0,juke:null,tasedT:0,burstUntil:0,state:tazeRound()>1?'flee':'calm'});
+}
+const CONE_MISS_LINE="📣 Go around the cone's far side!";   // the weave rule, explained once per lap (kid-ux 14)
+const LINEUP_NEED=3, RANGE_NEED=2;   // robbers to cuff, taser hits to land (unchanged v0.4 values)
+const DRILLS=[
+  {id:'slalom',mode:'drive',hint:()=>steerKind()==='thumb'?(thumbHint()||'WEAVE AROUND THE CONES'):({keys:'STEER AROUND THE CONES',tilt:'TILT TO WEAVE'})[steerKind()],line:'Weave around the cones! Hold right for gas 👉',
+    setup(now){ if(Math.hypot(car.x+100,car.z+88)>1||acad.only)placeCar(-100,-88,Math.PI/2);
+      for(const c of CONES){c.hit=false;c.tipT=0;c.miss=false;} acad.drillT0=0; acad.slx=car.x; },
+    update(dt,now){
+      if(!acad.drillT0&&car.x>SLALOM.start){acad.drillT0=ts(now); if(!acad.lapT0)acad.lapT0=ts(now);}   // the lap clock starts on the line
+      const cc=carCircles(), px=acad.slx; acad.slx=car.x;
+      CONES.forEach((c,i)=>{ if(c.hit)return;
+        for(const q of cc)if(Math.hypot(q.x-c.x,q.z-c.z)<1.6){c.hit=true; c.tipT=now; acad.pen+=1; emit('cone',{i}); return;}
+        /* weave rule: as the car crosses a cone's x it must be past the centre line on the far side from that cone —
+           driving straight down the middle misses every cone, so each wrong-side pass costs +1 s (and tips it) */
+        if(px<c.x&&car.x>=c.x&&!(c.z>SLALOM.z?car.z<SLALOM.z:car.z>SLALOM.z)){c.hit=true; c.miss=true; c.tipT=now; acad.pen+=1; emit('cone',{i,miss:true});
+          if(!acad.missSaid){acad.missSaid=true; say(CONE_MISS_LINE,3200);} } });   // say why, once a run
+    },
+    aff(){return null;},
+    done(){return car.x>SLALOM.finish;},
+    target(){return {x:SLALOM.finish,z:SLALOM.z,lab:'Finish'};}},
+  {id:'gates',mode:'drive',line:'Drive through the glowing rings! ⭕',
+    hint(){return acad.gi>=GATES.length?'STOP IN THE BAY':(acad.gi===3&&!siren.on)?'TAP SIREN!':'DRIVE THROUGH RINGS';},
+    setup(now){ acad.gi=0; acad.holdT=0;
+      if(acad.only==='gates'){placeCar(-8,-84,Math.PI/2); acad.lapT0=ts(now);} else if(!acad.lapT0)acad.lapT0=ts(now); },
+    update(dt,now){
+      if(acad.gi<GATES.length){
+        const [gx,gz]=GATES[acad.gi];
+        if(Math.hypot(car.x-gx,car.z-gz)<GATE_R){
+          emit('gate',{i:acad.gi}); acad.gi++;
+          if(acad.gi===3){ if(siren.on)say('📣 Siren on — go fast!',3000);   // already on: never tell a kid to tap it off
+            else say('📣 Tap SIREN — go fast! 🚨',3000); }
+          if(acad.gi===GATES.length)say('📣 Park in the bay! 🏢',3000);
+        }
+      }else acad.holdT=(inBay(car.x,car.z)&&car.mv<3)?acad.holdT+dt:0;
+    },
+    aff(){return null;},
+    done(){return acad.gi>=GATES.length&&acad.holdT>=0.5-1e-9;},
+    target(){return acad.gi<GATES.length?{x:GATES[acad.gi][0],z:GATES[acad.gi][1],lab:'Gate'}:{x:STATION.x,z:STATION.z,lab:'Bay'};}},
+  {id:'exit',mode:'drive',hint:()=>DRILLS[acad.step].aff()==='slow'?'SLOW DOWN, JUMP OUT!':'TAP EXIT!',line:'Tap EXIT to hop out 🚪',untimed:true,
+    setup(){}, update(){},
+    aff(){return mode==='foot'?null:Math.abs(car.speed)<8?'exit':'slow';},
+    done(){return mode==='foot';},
+    target(){return {x:STATION.x,z:STATION.z,lab:'Bay'};}},
+  {id:'lineup',mode:'foot',hint:()=>'CUFF ROBBERS '+Math.min(acad.robbers|0,LINEUP_NEED)+'/'+LINEUP_NEED,line:'Cuff the robber, not Grandma! 👵',
+    setup(now){ if(acad.only){footStart(); acad.lapT0=ts(now);} acad.pair=0; acad.robbers=0; acad.nextPopT=now;
+      for(const c of cutouts)Object.assign(c,{up:false,fold:0,dizzyT:0}); },
+    update(dt,now){ if(acad.robbers<LINEUP_NEED&&now>=acad.nextPopT&&!cutouts.some(c=>c.up&&!c.fold))popPair(now); },
+    aff(){ return mode==='foot'&&gnow()>=cop.freezeUntil&&nearestCutout()?'cuff':null; },
+    done(now){ return acad.robbers>=LINEUP_NEED&&now>=acad.nextPopT; },
+    target(){ const g=parkGate(); if(g)return g; const u=cutouts.filter(c=>c.up&&!c.fold);
+      return u.length?{x:u.reduce((s,c)=>s+c.x,0)/u.length,z:u.reduce((s,c)=>s+c.z,0)/u.length,lab:'Target',ring:false}
+        :{x:PARK.x,z:PARK.z-7,lab:'Target',ring:false}; }},
+  {id:'taser',mode:'foot',line:'Zap the sliding target! ⚡',
+    hint(){ return (tazeOK()?'ZAP HIM!':!onFiringLine()?'AIM FROM THE LINE':facingAway()?'TURN TO FACE HIM':'WAIT FOR HIM…')+' '+Math.min(acad.hits|0,RANGE_NEED)+'/'+RANGE_NEED; },
+    setup(now){ if(acad.only){footStart(); acad.lapT0=ts(now);} acad.shot=0; acad.hits=0; acad.shotT=-1;
+      taze.phase='idle'; taze.charges=3; taze.hit=false; resetSlider(); },
+    update(dt,now){
+      resolveTaze(now);                                    // the real resolve: same geometry as patrol
+      if(taze.phase==='flash'&&acad.shotT!==taze.t0){acad.shotT=taze.t0; acad.shot++; if(taze.hit)acad.hits++;}
+      if(taze.phase==='idle')taze.charges=3;               // charges refill after every shot (pips: ∞)
+      const S=slider, rd=tazeRound();
+      if(S.state==='tased'){ S.speed=0; if(acad.hits<RANGE_NEED&&now-S.tasedT>=1200)resetSlider(); return; }
+      S.state=rd>1?'flee':'calm'; S.burstUntil=rd>1?1e15:0; S.speed=RAIL_V[rd-1];   // round 1 calm: no juke; 2-3: the 50 % burst odds
+      if(S.juke&&now<S.juke.until)S.x+=S.juke.dx*8*dt;
+      else{ S.juke=null;
+        if(S.x>=RAIL.x2&&S.dir>0)S.dir=-1; else if(S.x<=RAIL.x1&&S.dir<0)S.dir=1;
+        S.x+=S.dir*S.speed*dt; }
+      S.a=S.dir>0?Math.PI/2:-Math.PI/2;
+    },
+    aff(){ return null; },
+    done(now){ return acad.hits>=RANGE_NEED&&slider.state==='tased'&&now-slider.tasedT>=800; },
+    target(){ return parkGate()||{x:slider.x,z:slider.z,lab:'Target',beam:[PARK.x,FIRE_Z],ring:false}; }},
+  {id:'return',mode:'foot',line:'Back to the cruiser! 🚓',untimed:true,
+    hint(){ return academyAff()==='enter'?'TAP ENTER!':'WALK TO THE CAR'; },
+    setup(){}, update(){},
+    aff(){ return mode==='foot'&&gnow()>=cop.freezeUntil&&Math.hypot(cop.x-car.x,cop.z-car.z)<3.5?'enter':null; },
+    done(){ return mode==='drive'; },
+    target(){ return {x:car.x,z:car.z,lab:'Car'}; }},
+  {id:'graduate',mode:null,hint:null,line:'You did it, cadet! 🎓',untimed:true,
+    setup(now){graduate(now);}, update(){}, aff(){return null;}, done(){return false;}, target(){return null;}},
+];
+/* placeholder plywood boards (fillRect only): the robber wears stripes + a mask; decoys are friendly. Final art: stage 4 */
+function cutoutTex(kind){
+  const c=document.createElement('canvas'); c.width=32; c.height=64; const x=c.getContext('2d');
+  const r=(col,a,b,w,h)=>{x.fillStyle=col; x.fillRect(a,b,w,h);};
+  r('#e0bf8f',0,0,32,64); r('#c9a270',0,0,32,2); r('#c9a270',0,62,32,2);   // the plywood board
+  const body={robber:'#23262b',grandma:'#9b59d0',mail:'#2f6fd0',hotdog:'#f6f6f6'}[kind];
+  r('#24303f',10,46,5,16); r('#24303f',17,46,5,16);        // chunky legs
+  r(body,7,23,18,24);                                      // wide torso
+  r(body,4,24,3,14); r(body,25,24,3,14);                   // arms
+  if(kind==='robber'){for(let i=0;i<3;i++)r('#eeeeee',7,26+i*7,18,3);
+    r('#c9a66b',20,30,11,13); r('#2f7d32',23,33,5,7); r('#c9a66b',24,34,3,1); r('#c9a66b',24,37,3,1);}   // loot sack with a $
+  if(kind==='grandma'){r('#7a3fb0',6,40,20,6); r('#c0392b',24,36,6,6); r('#8a2b20',25,34,4,2);}   // dress hem + handbag
+  if(kind==='mail'){r('#8a5a2b',19,28,8,11); r('#f4f4f4',21,30,4,3);}   // mail bag + letter
+  if(kind==='hotdog'){r('#c94a2b',9,32,14,4); r('#e8c14f',10,33,12,1); r('#f0d9a8',8,31,16,1);}   // hot dog in a bun
+  r('#f0c8a0',9,8,14,14);                                  // a big square face
+  if(kind==='robber'){r('#111',9,12,14,4); r('#2b2d33',8,3,16,6); r('#e23b3b',14,0,4,3);}   // mask band + beanie + pom
+  if(kind==='grandma'){r('#f4f4f4',8,4,16,5); r('#f4f4f4',12,0,8,5); r('#555',11,13,4,3); r('#555',17,13,4,3);}   // white hair + bun, glasses
+  if(kind==='mail')r('#2f6fd0',8,4,16,5);
+  if(kind==='hotdog')r('#f4f4f4',9,0,14,8);                // chef hat
+  r(kind==='robber'?'#fff':'#222',12,13,2,2); r(kind==='robber'?'#fff':'#222',18,13,2,2);   // eyes
+  r(kind==='robber'?'#222':'#b5543c',13,18,6,1);           // mouth (smile for the friendlies)
+  if(kind!=='robber'){r('#b5543c',12,17,1,1); r('#b5543c',19,17,1,1);}
+  const t=new THREE.CanvasTexture(c); t.magFilter=THREE.NearestFilter; return t;
+}
+/* lazy props: shared geometry/materials, one group (hidden in patrol, kept built). No rand()/Math.random */
+function buildAcademyProps(){
+  if(acadProps)return acadProps;
+  const g=new THREE.Group(); g.visible=false;
+  const coneGeo=new THREE.ConeGeometry(0.45,1.1,10), coneMat=M(0xff7a1a);
+  const cones=CONES.map(c=>{const m=new THREE.Mesh(coneGeo,coneMat); m.position.set(c.x,0.55,c.z); g.add(m); return m;});
+  const posts=new THREE.InstancedMesh(new THREE.BoxGeometry(0.5,3,0.5),M(0xffc857),GATES.length*2);   // 12 posts, 1 draw call
+  const dummy=new THREE.Object3D();
+  GATES.forEach(([x,z],i)=>{
+    const onX=XLINES.includes(x);                          // a north-south street: the posts stand either side in x
+    for(const s of[-1,1]){ dummy.position.set(x+(onX?s*GATE_R:0),1.5,z+(onX?0:s*GATE_R)); dummy.updateMatrix(); posts.setMatrixAt(i*2+(s>0?1:0),dummy.matrix); }
+  });
+  posts.instanceMatrix.needsUpdate=true; posts.frustumCulled=false; g.add(posts);   // r128 culls instances by the base box at the origin
+  const lineGeo=new THREE.PlaneGeometry(0.8,12), lineMat=new THREE.MeshBasicMaterial({color:0xf4f4f4});
+  for(const x of[SLALOM.start,SLALOM.finish]){const l=new THREE.Mesh(lineGeo,lineMat); l.rotation.x=-Math.PI/2; l.position.set(x,0.05,SLALOM.z); g.add(l);}
+  const beacon=new THREE.Group();                          // ONE next-target marker: the addBeam column + a ground ring
+  const beam=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,26,8,1,true),
+    new THREE.MeshBasicMaterial({color:0xffc857,transparent:true,opacity:0.18,side:THREE.DoubleSide}));
+  beam.position.y=13; beacon.add(beam);
+  const ring=new THREE.Mesh(new THREE.RingGeometry(GATE_R-0.5,GATE_R,32),
+    new THREE.MeshBasicMaterial({color:0xffc857,transparent:true,opacity:0.55,side:THREE.DoubleSide}));
+  ring.rotation.x=-Math.PI/2; ring.position.y=0.06; beacon.add(ring);
+  g.add(beacon);
+  const whistle=makePerson(M(0x1f5fd6),{hat:'cap',capColor:0xffd23f,badge:true,stache:true});   // Sgt. Whistle: yellow cap, moustache; visual only
+  whistle.position.set(-61.3,0,13); whistle.rotation.y=Math.PI/2;   // outside the wing AABB, facing the x=-56 street
+  g.add(whistle);
+  /* foot half: 2 line-up boards + the rail slider share one hinged quad; ONE material per kind (stage 4 swaps the map) */
+  const q=new THREE.BufferGeometry();                      // 1.2 × 2 m, hinged at its bottom edge (y=0), faces +z
+  q.setAttribute('position',new THREE.BufferAttribute(new Float32Array([-0.6,0,0, 0.6,0,0, 0.6,2,0, -0.6,2,0]),3));
+  q.setAttribute('normal',new THREE.BufferAttribute(new Float32Array([0,0,1, 0,0,1, 0,0,1, 0,0,1]),3));
+  q.setAttribute('uv',new THREE.BufferAttribute(new Float32Array([0,0, 1,0, 1,1, 0,1]),2));
+  q.setIndex([0,1,2, 0,2,3]);
+  const cutMat={}; for(const k of['robber'].concat(DECOYS))cutMat[k]=new THREE.MeshLambertMaterial({map:cutoutTex(k),side:THREE.DoubleSide});
+  const cuts=cutouts.map(()=>{const m=new THREE.Mesh(q,cutMat.robber); m.kind='robber'; m.rotation.order='YXZ'; m.visible=false; g.add(m); return m;});
+  const sl=new THREE.Mesh(q,cutMat.robber); sl.kind='robber'; sl.rotation.order='YXZ'; sl.visible=false; g.add(sl);
+  const rail=new THREE.Mesh(new THREE.BoxGeometry(RAIL.x2-RAIL.x1+1.2,0.12,0.25),M(0x6b6f78));
+  rail.position.set((RAIL.x1+RAIL.x2)/2,0.06,RAIL.z); g.add(rail);
+  const fline=new THREE.Mesh(new THREE.PlaneGeometry(RAIL.x2-RAIL.x1,0.4),new THREE.MeshBasicMaterial({color:0xf4f4f4}));
+  fline.rotation.x=-Math.PI/2; fline.position.set((RAIL.x1+RAIL.x2)/2,0.05,FIRE_Z); g.add(fline);
+  const dizzy=[0,1,2].map(()=>{const sp=textSprite('★','#ffd23f'); sp.scale.set(0.6,0.6,1); scene.remove(sp); g.add(sp); return sp;});
+  scene.add(g);
+  acadProps={g,cones,posts,beacon,ring,whistle,cuts,cutMat,slider:sl,rail,fline,dizzy};
+  return acadProps;
+}
+function startAcademy(o){
+  o=o||{};
+  buildAcademyProps(); acadProps.g.visible=true;
+  phase='academy';
+  const only=DRILLS.some(d=>d.id===o.only&&d.id!=='graduate')?o.only:null;
+  Object.assign(acad,{step:only?DRILLS.findIndex(d=>d.id===only):0,drillT0:0,lapT0:0,pen:0,pen0:0,times:{},
+    trial:!!(o.trial||only),only,holdT:0,missSaid:false,gi:0,lap:0,lapEnd:0,lapPen:0,newBest:false,medal:''});
+  for(const c of CONES){c.hit=false;c.tipT=0;c.miss=false;}
+  placeCar(-100,-88,Math.PI/2);
+  mode='drive'; copM.visible=false; cop.freezeUntil=0;
+  if(siren.on){siren.on=false; emit('siren',{on:false});}
+  taze.phase='idle';
+  $('card').classList.remove('show','grad'); $('acad').classList.add('on'); acadHudTxt=null;
+  enterDrill(gnow());
+}
+function exitAcademy(){
+  phase='patrol';
+  if(acadProps)acadProps.g.visible=false;
+  $('acad').classList.remove('on'); $('card').classList.remove('grad'); bSiren.classList.remove('nudge');
+}
+function startPatrol(){
+  exitAcademy();
+  placeCar(-100,-88,Math.PI/2);
+  mode='drive'; copM.visible=false; cop.freezeUntil=0;
+  if(siren.on){siren.on=false; emit('siren',{on:false});}
+  run.hitT=0;
+  respawnCrook();                                          // resets run + taze, hides the card
+  sayOnDuty();
+}
+function enterDrill(now){
+  const d=DRILLS[acad.step]; if(!d)return;
+  acad.pen0=acad.pen; acad.drillT0=ts(now); acad.holdT=0;
+  d.setup(now);
+  emit('whistle',{id:d.id}); say('📣 '+d.line,3200);
+}
+function finishDrill(now){
+  const d=DRILLS[acad.step];
+  if(!d.untimed){
+    acad.times[d.id]=(now-(acad.drillT0||now))/1000+(acad.pen-acad.pen0);
+    if(acad.only===d.id){acad.lap=acad.times[d.id]; acad.lapEnd=ts(now); acad.lapPen=acad.pen-acad.pen0;}
+    else if(d.id==='gates'&&!acad.only){acad.lap=(now-(acad.lapT0||now))/1000+acad.pen; acad.lapEnd=ts(now); acad.lapPen=acad.pen;}
+  }
+  emit('drillDone',{id:d.id});
+  acad.step=acad.only?DRILLS.findIndex(x=>x.id==='graduate'):acad.step+1;
+  enterDrill(now);
+}
+function academyStep(dt,now){
+  const d=DRILLS[acad.step]; if(!d)return;
+  if($('cstate').textContent!=='cadet training')$('cstate').textContent='cadet training';   // no crook in the academy
+  d.update(dt,now);
+  if(d.done(now))finishDrill(now);
+  acadHud(now);
+}
+function academyAff(){ const d=DRILLS[acad.step]; return d?d.aff():null; }
+const academyCard=()=>phase==='academy'&&!!DRILLS[acad.step]&&DRILLS[acad.step].id==='graduate';
+function academyTarget(){ const d=DRILLS[acad.step]; return d&&d.target?d.target():null; }
+/* graduation (the whole course) or a single-drill trial: the card, per-badge bests, the one-time bonus stars */
+function graduate(now){
+  /* round once to the 0.1 s the card shows: NEW BEST and the medal must agree with the times on screen */
+  const r1=v=>Math.round(v*10)/10;
+  acad.lap=r1(acad.lap); for(const k of Object.keys(acad.times))acad.times[k]=r1(acad.times[k]);
+  const full=!acad.only, a=Object.assign({grad:false,best:{}},career.academy||{}); a.best=Object.assign({},a.best);
+  const first=full&&!a.grad, key=full?'lap':acad.only, prev=a.best[key];
+  acad.newBest=prev!=null&&acad.lap<prev-1e-9;
+  for(const [k,v] of Object.entries(acad.times))if(!(a.best[k]<=v))a.best[k]=Math.round(v*10)/10;
+  if(full&&!(a.best.lap<=acad.lap))a.best.lap=Math.round(acad.lap*10)/10;
+  if(full){a.grad=true; a.t=Date.now();}
+  career.academy=a;
+  const rank0=rankFor(career.stars);
+  if(first)career.stars+=+RULES.gradStars||0;             // granted once per badge (house rule, default 0)
+  const promoted=rankFor(career.stars)!==rank0;           // bonus stars can cross a rank line (non-default house rule)
+  saveCareer(); hudCareer();
+  acad.medal=!full?'⏱':acad.lap<=ACADEMY_PAR.gold?'🥇':acad.lap<=ACADEMY_PAR.silver?'🥈':acad.lap<=ACADEMY_PAR.bronze?'🥉':'🎖️';
+  const NAMES={slalom:'Slalom',gates:'Gates',lineup:'Line-up',taser:'Taser'};
+  $('cardH').textContent=acad.trial?'TIME TRIAL 🏁':'GRADUATED 🎓';
+  $('cardS').textContent=acad.medal;
+  $('cardL').textContent=Object.keys(acad.times).map(k=>(NAMES[k]||k)+' '+acad.times[k].toFixed(1)+'s').join(' · ');
+  $('cardR').textContent=(full?'Lap ':'Time ')+fmtT(acad.lap)+' · Best '+fmtT(a.best[key])+(acad.newBest?' · NEW BEST':'');
+  /* the medal in words, and what to beat next (a new element: cardS stays the bare medal) */
+  /* praise first, then a friendly next goal — never a "missed" line (Playtest #3 kid-ux 13; the par is Q13, untouched) */
+  const P=ACADEMY_PAR, parT=v=>fmtT(v).replace(/\.0$/,''), medalTxt=!full?'':acad.lap<=P.gold?'GOLD 🥇 top time!'
+    :acad.lap<=P.silver?'SILVER! Next: gold under '+parT(P.gold)
+    :acad.lap<=P.bronze?'BRONZE! Next: silver under '+parT(P.silver)
+    :(first?'You graduated!':'Nice driving!')+' Next: bronze under '+parT(P.bronze);
+  cardN.textContent=[promoted?'PROMOTED: '+rankFor(career.stars):'',medalTxt].filter(Boolean).join(' · ');
+  $('card').classList.add('show','grad'); popCard(false); cardArmT=gnow()+CARD_ARM; cardGoPid=null; cardAgainPid=null;
+  if(full)emit('graduate',{lap:acad.lap});
+  if(promoted)emit('rank',{rank:rankFor(career.stars)});
+  if(acad.newBest)emit('newBest',{lap:acad.lap});
+}
+/* GO ON PATROL fires on the lift of a press that began on the button, and only once the card has been up
+   CARD_ARM ms: a thumb already down (or re-pressed) as the card pops cannot skip the medal and times */
+const CARD_ARM=600; let cardArmT=0, cardGoPid=null;
+/* the lift must land on the button (8 px slop): a touch pointer is implicitly captured by the button it began on,
+   so pointerleave never fires mid-drag — a thumb that slides off to change its mind cancels the press */
+function liftOnBtn(el,e){ const r=el.getBoundingClientRect(), x=e.clientX, y=e.clientY, s=8;
+  return x>=r.left-s&&x<=r.right+s&&y>=r.top-s&&y<=r.bottom+s; }
+$('cardGo').addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();
+  cardGoPid=(paused||gnow()<cardArmT)?null:e.pointerId;});
+$('cardGo').addEventListener('pointerup',e=>{e.preventDefault();e.stopPropagation();
+  const ok=!paused&&e.pointerId===cardGoPid&&gnow()>=cardArmT&&liftOnBtn($('cardGo'),e); cardGoPid=null; if(ok)startPatrol();});
+for(const ev of['pointercancel','pointerleave'])$('cardGo').addEventListener(ev,e=>{if(e.pointerId===cardGoPid)cardGoPid=null;});
+/* TRY AGAIN ↻ (the second off-play card button): the same lap again as a time trial, armed like GO ON PATROL.
+   Built here and inserted before #cardGo, so #cardGo stays the card's last child and the pinned HTML is unchanged */
+const cardAgain=(()=>{ let b=document.getElementById('cardAgain');
+  if(!b){ b=document.createElement('button'); b.id='cardAgain'; const go=$('cardGo'); go.parentNode.insertBefore(b,go); }
+  b.textContent='TRY AGAIN ↻'; return b; })();
+let cardAgainPid=null;
+function tryAgain(){ startAcademy({trial:true,only:acad.only}); }
+cardAgain.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();
+  cardAgainPid=(paused||gnow()<cardArmT||!academyCard())?null:e.pointerId;});
+cardAgain.addEventListener('pointerup',e=>{e.preventDefault();e.stopPropagation();
+  const ok=!paused&&e.pointerId===cardAgainPid&&gnow()>=cardArmT&&academyCard()&&liftOnBtn(cardAgain,e); cardAgainPid=null; if(ok)tryAgain();});
+for(const ev of['pointercancel','pointerleave'])cardAgain.addEventListener(ev,e=>{if(e.pointerId===cardAgainPid)cardAgainPid=null;});
+/* HUD chip: '🎓 2/N ●●○○ 0:31.4 +3s' — the clock shows in trial mode or once graduated */
+let acadHudTxt=null;
+function acadHud(now){
+  const N=acad.only?1:DRILLS.length-1, k=acad.only?(academyCard()?1:0):acad.step;
+  let dots=''; for(let i=0;i<N;i++)dots+=i<k?'●':'○';
+  const clock=acad.trial||!!(career.academy&&career.academy.grad);
+  const t=acad.lapEnd?acad.lap:acad.lapT0?(now-acad.lapT0)/1000+acad.pen:0;
+  const pen=acad.lapEnd?acad.lapPen:acad.pen;   // once the lap closes, the chip shows the penalty inside that lap (matches the card)
+  const h='🎓 '+Math.min(k+1,N)+'/'+N+' <span class="dots">'+dots+'</span>'+(clock?' '+fmtT(t):'')+(pen?' <span class="pen">+'+pen+'s</span>':'');
+  if(h!==acadHudTxt){acadHudTxt=h; $('acad').innerHTML=h; if(msgEl.classList.contains('show'))placeMsg();}
+}
+/* ============ hint pill ("DO THIS NOW") ============ */
+let hintsOn=true; try{hintsOn=localStorage.getItem('code3.hints')!=='off';}catch(e){}
+$('tHints').textContent=hintsOn?'on':'off'; $('tHints').classList.toggle('on',hintsOn);
+let hintTxt=null;
+const HINT_ACT={'JUMP OUT!':'exit','GRAB HIM!':'cuff','TAP BOOK!':'book','TAP EXIT!':'exit','WALK HIM TO THE CAR':'enter','DRIVE TO STATION':'enter','TAP ENTER!':'enter'};
+function hintFor(){
+  if(!started)return null;
+  if(phase==='academy'){const d=DRILLS[acad.step]; if(!d)return null; return (typeof d.hint==='function'?d.hint():d.hint)||null;}
+  const s=crook.state, a=affordance();
+  if(a==='book')return 'TAP BOOK!';
+  if(s==='custody'){
+    if(crook.inCar)return mode==='drive'&&inBay(car.x,car.z)?'STOP IN THE BAY':'DRIVE TO STATION';
+    return 'WALK HIM TO THE CAR';
+  }
+  if(s==='cuffed')return 'WALK HIM TO THE CAR';
+  if(s==='booked'||s==='escaped')return null;
+  if(mode==='foot'){
+    if(a==='cuff')return 'GRAB HIM!';
+    if(tazeOK())return 'ZAP HIM!';
+    return thumbHint()||(s==='calm'?'FIND HIM!':'CHASE HIM!');
+  }
+  if(Math.hypot(car.x-crook.x,car.z-crook.z)<15)return a==='exit'?'JUMP OUT!':'SLOW DOWN, JUMP OUT!';   // EXIT dimmed ('slow'): brake first
+  return thumbHint()||(s==='calm'?'FIND HIM!':'CHASE HIM!');
+}
+/* patrol: a no-tilt touch player is told how to steer until the first left-thumb touch */
+function thumbHint(){ return steerKind()==='thumb'&&!thumbUsed?THUMB_HINT:null; }
+function updateHint(a){
+  const h=hintsOn?hintFor():null;
+  if(h!==hintTxt){hintTxt=h; $('hint').textContent=h||''; $('hint').classList.toggle('on',!!h);}
+  $('actRing').classList.toggle('on',!!h&&HINT_ACT[h]===a);
+  bSiren.classList.toggle('nudge',phase==='academy'&&DRILLS[acad.step]&&DRILLS[acad.step].id==='gates'&&acad.gi>=3&&acad.gi<GATES.length&&!siren.on);
+}
+/* visual only (tick): tipped cones, the next-target beacon */
+function academyVisuals(now){
+  if(!acadProps)return;
+  CONES.forEach((c,i)=>{ const m=acadProps.cones[i], k=c.hit?clamp((now-c.tipT)/300,0,1):0;
+    m.rotation.z=-k*1.45; m.position.y=0.55-k*0.3; });
+  const T=academyTarget(); acadProps.beacon.visible=!!T;
+  if(T){const b=T.beam||[T.x,T.z]; acadProps.beacon.position.set(b[0],0,b[1]); acadProps.ring.visible=T.ring!==false;}
+  const id=DRILLS[acad.step]&&DRILLS[acad.step].id, t=now/1000;
+  let dz=null;                                              // dizzy stars: over a cuffed robber board or the zapped slider
+  cutouts.forEach((c,i)=>{ const m=acadProps.cuts[i]; m.visible=id==='lineup'&&c.up; if(!m.visible)return;
+    if(m.kind!==c.kind){m.kind=c.kind; m.material=acadProps.cutMat[c.kind];}
+    const k=c.fold?1-clamp((now-c.fold)/300,0,1):clamp((now-c.t0)/300,0,1);   // pop / fold: -π/2 ↔ 0 over 0.3 s
+    m.position.set(c.x,0.02,c.z); m.rotation.y=c.yaw; m.rotation.x=-Math.PI/2*(1-k);
+    if(c.dizzyT&&now-c.dizzyT<1500)dz=[c.x,0.6,c.z]; });
+  const S=slider, sm=acadProps.slider; sm.visible=id==='taser';
+  if(sm.visible){ sm.position.set(S.x,0.02,S.z);
+    if(S.state==='tased'){const k=clamp((now-S.tasedT)/400,0,1); sm.rotation.y=k*Math.PI*4; sm.rotation.x=-Math.PI/2*k; dz=[S.x,0.6,S.z];}
+    else{sm.rotation.y=0; sm.rotation.x=0;} }
+  acadProps.dizzy.forEach((sp,i)=>{ sp.visible=!!dz; if(!dz)return;
+    const a=t*4+i*Math.PI*2/3; sp.position.set(dz[0]+Math.cos(a)*0.6,dz[1]+0.1*Math.sin(t*6+i),dz[2]+Math.sin(a)*0.6); });
+}
+
+/* ============ crook visuals (tick only; read off the crook's fields, never write them) ============ */
+/* face mood: dizzy when tased / cuffed / clipped, grumpy in custody, scared while fleeing, else normal */
+function crookMood(now){
+  const s=crook.state;
+  if(s==='tased'||s==='cuffed'||((s==='flee'||s==='slipped')&&now<crook.hitUntil))return 'dizzy';
+  if(s==='custody'||s==='booked')return 'grumpy';
+  if(s==='flee'||s==='slipped')return 'scared';
+  return 'normal';
+}
+function crookVisuals(now,t){
+  const flee=(crook.state==='flee'||crook.state==='slipped'), cuffed=(crook.state==='cuffed'||crook.state==='custody'), tased=(crook.state==='tased');
+  alertS.visible=flee&&now<crook.popUntil;                   // '!' pops 0→1.6 over 0.25 s on (re-)alert
+  if(alertS.visible){const k=1.6*clamp((now-(crook.popUntil-1500))/250,0,1); alertS.scale.set(k,k,1);}
+  alertS.position.set(crook.x,2.95+Math.sin(t*6)*0.12,crook.z);
+  const head=crookM.userData.head, torso=crookM.userData.torso;   // look-back: head turns toward you, torso twists 0.25
+  if(flee&&now<crook.glanceUntil){
+    const tp=threatPos(); let ga=Math.atan2(tp.x-crook.x,tp.z-crook.z)-crook.a;
+    while(ga>Math.PI)ga-=2*Math.PI; while(ga<-Math.PI)ga+=2*Math.PI;
+    head.rotation.y=clamp(ga,-2.4,2.4); torso.rotation.y=0.25*Math.sign(ga);   // cartoon over-the-shoulder: the masked face shows to a chaser behind
+    glanceS.visible=true; glanceS.position.set(crook.x,2.75,crook.z);
+  }else{head.rotation.y=0; torso.rotation.y=0; glanceS.visible=false;}
+  const mood=crookMood(now); crookM.userData.face.map=crookM.userData.moods[mood];
+  swingArms(crookM,crook.inCar||cuffed||tased?0:crook.speed,t);
+  lostS.visible=flee&&now<crook.qUntil;                      // '?' — he lost you
+  lostS.position.set(crook.x,2.95+Math.sin(t*6)*0.12,crook.z);
+  const dust=flee&&now<crook.dbUntil;                        // double-back: dust at his feet
+  const hit=flee&&now<crook.hitUntil;                        // clipped: stars round his head, like cuffed
+  for(let i=0;i<3;i++){
+    stars[i].visible=cuffed||tased||hit||(dust&&i<2);
+    if(cuffed||tased||hit){
+      const a=t*4+i*Math.PI*2/3;
+      stars[i].position.set(crook.x+Math.cos(a)*0.55,2.3,crook.z+Math.sin(a)*0.55);
+    }else if(dust){
+      const a=t*20+i*Math.PI, r=0.5+0.3*Math.sin(t*30+i);
+      stars[i].position.set(crook.x+Math.cos(a)*r,0.15+0.1*Math.abs(Math.sin(t*25+i)),crook.z+Math.sin(a)*r);
+    }
+  }
+  crookM.rotation.z=cuffed?0.35:(flee&&crook.tired)?0.12*Math.sin(2*Math.PI*3*t):0;   // tired wobble
+
+}
+
+/* ============ juice: booking party, dispatch radio, confetti, speech bubble (visual only) ============ */
+/* #cardN sits between #cardR and the card buttons (#cardAgain, #cardGo); created here so the card's pinned HTML prefix stays byte-identical */
+const cardN=(()=>{ let n=document.getElementById('cardN');
+  if(!n){ n=document.createElement('div'); n.id='cardN'; const go=document.getElementById('cardAgain')||$('cardGo'); go.parentNode.insertBefore(n,go); }   // above TRY AGAIN ↻ + GO ON PATROL
+  return n; })();
+/* stars pop in one at a time (spans; #cardS textContent is unchanged, e.g. '★ ☆ ☆'); PROMOTED stamps down */
+function popCard(stamp){
+  const S=$('cardS'), H=$('cardH');
+  if(typeof S.replaceChildren==='function'&&typeof document.createTextNode==='function'){
+    const kids=[]; S.textContent.split(' ').forEach((w,i)=>{ if(i)kids.push(document.createTextNode(' '));
+      const sp=document.createElement('span'); sp.className='pop'; sp.style.animationDelay=(i*250)+'ms'; sp.textContent=w; kids.push(sp); });
+    S.replaceChildren(...kids);
+  }
+  H.classList.remove('stamp'); void H.offsetWidth; if(stamp)H.classList.add('stamp');
+}
+/* where he was last seen: a landmark block next to him, else Main St */
+function placeName(x,z){
+  let best=null,bd=1e9;
+  for(let c=0;c<4;c++)for(let r=0;r<3;r++){ const t=TYPES[c][r]; if(t==='build')continue;
+    const d=Math.hypot((XLINES[c]+XLINES[c+1])/2-x,(ZLINES[r]+ZLINES[r+1])/2-z); if(d<bd&&d<46){bd=d;best=t;} }
+  return {park:'the park',plaza:'the plaza',station:'the station',alleyNS:'the alley',alleyEW:'the alley'}[best]||'Main St';
+}
+/* radioQ: short lines held back, one at a time, until the toast and the current radio line have gone —
+   the kid never gets the on-duty toast and the dispatch at once (Playtest #3 kid-ux 11) */
+let radioTm=0, radioEsc=false, radioQ=[], radioLive=null;   // radioLive: the queued line now on #radio
+function radio(txt){ radioQ=[]; radioLive=null; radioShow(txt); }
+function radioShow(txt){
+  const el=$('radio'); el.textContent=txt; radioEsc=false;
+  el.classList.add('show'); placeRadio(); clearTimeout(radioTm);
+  radioTm=setTimeout(()=>{ el.classList.remove('show'); radioPump(); },3500);
+}
+/* the veil cut a queued dispatch line short: put it back at the front so it replays after resume */
+function radioHold(){
+  const el=$('radio');
+  if(radioEsc||radioLive===null||!el.classList.contains('show')||el.textContent!==radioLive)return;
+  clearTimeout(radioTm); el.classList.remove('show'); radioQ.unshift(radioLive); radioLive=null;
+}
+function radioPump(){
+  if(!radioQ.length)return;
+  if(phase!=='patrol'||!started){radioQ=[]; return;}
+  if(crook.alerted||crook.state!=='calm'){radioQ=[]; return;}   // spotted / cuffed / booked: the spawn-time 'Last seen' line is moot
+  if(paused)return;   // held under the pause veil; setPaused(false) pumps again
+  if($('radio').classList.contains('show')||msgEl.classList.contains('show')||$('card').classList.contains('show'))return;
+  radioShow(radioLive=radioQ.shift());
+}
+/* under the toast while it shows, else under the HUD; re-measured each frame it is up (the toast re-wraps) */
+function placeRadio(){
+  const el=$('radio'); if(!el.classList.contains('show'))return;
+  if(phase!=='patrol'||$('card').classList.contains('show')){el.classList.remove('show'); return;}   // never under the booking card
+  const m=msgEl.classList.contains('show')?msgEl:$('hud'), r=m.getBoundingClientRect&&m.getBoundingClientRect();
+  if(r&&r.height)el.style.top=Math.round(r.bottom+6)+'px';
+}
+/* the booking / graduation card: the toast hides under it, and it never rides up under the HUD (short landscape,
+   the academy chip wraps the HUD taller) — re-measured each frame while it shows (visual only, tick) */
+function placeCard(){
+  const c=$('card'), up=c.classList.contains('show'); msgEl.classList.toggle('undercard',up);
+  if(!up){ if(c.style.top)c.style.top=''; return; }
+  const h=$('hud').getBoundingClientRect(), r=c.getBoundingClientRect(); if(!h||!r||!r.height)return;
+  if(r.top<h.bottom+6)c.style.top=Math.round(Math.min(h.bottom+6+r.height/2,innerHeight-r.height/2))+'px';
+}
+/* two short beats (≤8 words each); the crime is on the booking card ('wanted for: …') */
+/* the pump is deferred: respawnCrook() emits 'spawn' before its caller's say('New crook …') / sayOnDuty(), so a
+   same-step pump would find no toast up and show both at once — after the caller's say() it waits for the toast */
+function dispatchRadio(){ radioQ=['📻 Wanted: '+crook.name+'!','📻 Last seen near '+placeName(crook.x,crook.z)]; setTimeout(radioPump,0); }
+/* confetti: ONE Points of 60 from our own Float32Array; hash32(i,burst) → deterministic, seed-free */
+const CONF_N=60, CONF_COLS=[0xff4d4d,0xffd23f,0x4da3ff,0x5ee08a,0xff7ad9];
+const confetti={n:CONF_N,pos:new Float32Array(CONF_N*3),col:new Float32Array(CONF_N*3),burst:0,t0:-1e9,x:0,z:0,life:2.5,g:9};
+for(let i=0;i<CONF_N;i++){const c=CONF_COLS[i%5]; confetti.col.set([(c>>16&255)/255,(c>>8&255)/255,(c&255)/255],i*3);}
+const confAttr=new THREE.BufferAttribute(confetti.pos,3);
+const confM=(()=>{ const g=new THREE.BufferGeometry(); g.setAttribute('position',confAttr);
+  g.setAttribute('color',new THREE.BufferAttribute(confetti.col,3));
+  const p=new THREE.Points(g,new THREE.PointsMaterial({size:0.7,vertexColors:true})); p.frustumCulled=false; p.visible=false; scene.add(p); return p; })();
+function confettiBurst(x,z,now){ confetti.burst++; confetti.t0=now; confetti.x=x; confetti.z=z; confettiStep(now); }
+function confettiStep(now){
+  const C=confetti, t=(now-C.t0)/1000, live=t>=0&&t<C.life; confM.visible=live; if(!live)return false;
+  for(let i=0;i<C.n;i++){
+    const a=hash32(i,C.burst*4)*Math.PI*2, sp=2+hash32(i,C.burst*4+1)*5, vy=3+hash32(i,C.burst*4+2)*5;
+    C.pos[i*3]=C.x+Math.cos(a)*sp*t; C.pos[i*3+2]=C.z+Math.sin(a)*sp*t;
+    C.pos[i*3+1]=Math.max(0.1,3.5+vy*t-0.5*C.g*t*t);
+  }
+  confAttr.needsUpdate=true; return true;
+}
+/* speech bubble: one reused sprite over the crook, 2 s, at most one per 6 s (visual only, gnow clock) */
+const bubble=(()=>{ const c=document.createElement('canvas'); c.width=256; c.height=64; const x=c.getContext('2d');
+  const tex=new THREE.CanvasTexture(c), s=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true}));
+  s.scale.set(2.8,0.7,1); s.visible=false; scene.add(s);
+  return {s,x,tex,txt:'',until:0,last:-1e9,req:null,reqUntil:0,wasTired:false}; })();
+const BUBBLE={alert:"Can't catch me!",glance:'Uh oh…',tired:"I'm pooped",lost:"Where'd he go?",tased:'Bzzzt',cuffed:'Aw, nuts.'};
+function sayBubble(txt,now){
+  const b=bubble; if(now-b.last<6000)return false;
+  b.last=now; b.until=now+2000;
+  if(b.txt!==txt){ const x=b.x; b.txt=txt; x.clearRect(0,0,256,64);
+    x.fillStyle='#1d1f24'; x.fillRect(6,4,244,50); x.fillRect(40,50,16,12);
+    x.fillStyle='#ffffff'; x.fillRect(9,7,238,44); x.fillRect(43,50,10,8);
+    x.fillStyle='#1d1f24'; x.font='800 28px system-ui,sans-serif'; x.textAlign='center'; x.textBaseline='middle'; x.fillText(txt,128,30);
+    b.tex.needsUpdate=true; }
+  return true;
+}
+function wantBubble(k,ms){ bubble.req=BUBBLE[k]; bubble.reqUntil=gnow()+(ms||800); }
+onFx((type,d)=>{
+  if(type==='book'||type==='graduate')confettiBurst(STATION.x,STATION.z,gnow());
+  if(phase!=='patrol'||!started)return;
+  if(type==='spawn')dispatchRadio();   // queued behind the escape line / the toast by radioPump
+  if(type==='escape'){ radio('💨 '+crook.name+' got away!'); radioEsc=true; }
+  if(type==='alert')wantBubble('alert'); if(type==='glance')wantBubble('glance'); if(type==='lost')wantBubble('lost');
+  if(type==='tazeHit'&&tazeTarget()===crook)wantBubble('tased',3000); if(type==='cuff')wantBubble('cuffed',3000);
+});
+function bubbleVisuals(now){
+  const b=bubble, flee=crook.state==='flee'||crook.state==='slipped';
+  if(flee&&crook.tired&&!b.wasTired)wantBubble('tired'); b.wasTired=flee&&crook.tired;
+  if(b.req&&now<b.reqUntil&&sayBubble(b.req,now))b.req=null;
+  b.s.visible=now<b.until&&crookM.visible&&phase==='patrol';
+  if(b.s.visible)b.s.position.set(crookM.position.x,crookM.position.y+3.4,crookM.position.z);
 }
 
 /* ============ debug panel ============ */
@@ -1557,12 +2653,17 @@ function updateDebug(now){
 /* ============ simulation ============
    One step of game logic — steering, car/cop physics, crook AI, context button.
    No camera, no rendering: test/harness.mjs calls this directly from Node.
-   dt in seconds, now in ms (performance.now()). */
+   dt in seconds, now in ms (the game clock, gnow()). */
 function simulate(dt,now){
-  const t=now/1000;
   computeSteer(dt);
   const go=keys.gas||goPointers.size>0;
-
+  stepPlayer(dt,now,go);
+  if(phase==='academy')academyStep(dt,now); else{resolveTaze(now);updateCrook(dt,now);updateRun(dt,now);}
+  updateActBtn();
+}
+/* the player's own physics (car or cop), moved verbatim out of simulate() */
+function stepPlayer(dt,now,go){
+  const t=now/1000;
   if(mode==='drive'){
     const px=car.x,pz=car.z;
     const v0=car.speed, vmax=siren.on?42:34;              // siren: traffic clears
@@ -1587,7 +2688,10 @@ function simulate(dt,now){
     const mv=Math.hypot(car.x-px,car.z-pz)/dt;
     car.mvPrev=car.mvRaw; car.mvRaw=mv; car.mv+=(mv-car.mv)*Math.min(1,dt*20);
     /* paperwork: a crash (over 15 m/s, lost 8 m/s in one step), at most one a second — counted spawn → book */
-    if(car.mvPrev>15&&car.mvPrev-car.mvRaw>8&&now-run.hitT>1000){run.hitT=now; run.paperwork++; say('📋 Paperwork +1'); vib(40);}
+    if(car.mvPrev>15&&car.mvPrev-car.mvRaw>8&&now-run.hitT>1000){
+      if(phase==='academy'){if(!academyCard()){run.hitT=now; acad.pen+=2; say('💥 Bump! +2 seconds'); vib(40); emit('crash');}}   // academy: time, not paperwork (none behind the graduation card)
+      else{run.hitT=now; run.paperwork++; say('📋 Paperwork +1'); vib(40); emit('crash');}
+    }
     car.contact=mv<0.6*Math.abs(car.speed)&&Math.abs(car.speed)>0.5;   // something truncated the step
     car.wedged=mv<0.5&&mv<0.35*Math.abs(car.speed)&&Math.abs(car.speed)>((go||keys.brake)?3:0);
     if(car.wedged)car.speed*=Math.max(0,1-12*dt);
@@ -1598,24 +2702,19 @@ function simulate(dt,now){
     $('modeTxt').textContent='DRIVING';
   }else{
     const frozen=now<cop.freezeUntil;                       // the cuff beat
-    const target=frozen?0:go?7.2:(inputKind==='keys'?0:3.0); // touch keeps SPEC's always-jogging
+    const target=frozen?0:go?7.2:(inputKind==='keys'||rangeHold()?0:3.0); // touch keeps SPEC's always-jogging (not on the range's firing line)
     if(frozen)cop.speed=0;
     else{ cop.speed+=(target-cop.speed)*Math.min(1,dt*6); cop.a-=steerSm*3.6*dt; }
     const px=cop.x,pz=cop.z;
     [cop.x,cop.z]=collidePerson(
       cop.x+Math.sin(cop.a)*cop.speed*dt,
-      cop.z+Math.cos(cop.a)*cop.speed*dt,0.45);
+      cop.z+Math.cos(cop.a)*cop.speed*dt,0.45,[px,pz]);
     cop.mv+=(Math.hypot(cop.x-px,cop.z-pz)/dt-cop.mv)*Math.min(1,dt*10);   // measured, like the car
     copM.position.set(cop.x,Math.abs(Math.sin(t*10))*0.07,cop.z);
     copM.rotation.y=cop.a;
     $('spd').textContent=Math.round(cop.mv*2.2);
     $('modeTxt').textContent=frozen?'CUFFING':go?'SPRINTING':'ON FOOT';
   }
-
-  resolveTaze(now);
-  updateCrook(dt,now);
-  updateRun(dt,now);
-  updateActBtn();
 }
 
 /* ============ main loop ============ */
@@ -1627,10 +2726,10 @@ const relV=new THREE.Vector3();
 function tick(){
   requestAnimationFrame(tick);
   const dt=Math.min(Math.max(clock.getDelta(),1e-4),0.05);   // never 0: measured speed divides by dt
-  const now=performance.now(), t=now/1000;
+  const now=gnow(), t=now/1000;
 
   if(started){
-    simulate(dt,now);
+    if(!paused)simulate(dt,now);
 
     /* dispatch tracker — crook normally; your car when he's dealt with & you're on foot.
        Needs the camera quaternion, so it stays in tick() rather than simulate(). */
@@ -1638,14 +2737,16 @@ function tick(){
       const me=mode==='drive'?car:cop;
       let tx=crook.x, tz=crook.z, lab='Crook', txt;
       const done=crook.state==='cuffed'||crook.state==='custody'||crook.state==='escaped'||crook.state==='booked';
-      if(mode==='foot'&&done){ tx=car.x; tz=car.z; lab='Car'; }
+      const AT=phase==='academy'?academyTarget():null;
+      if(phase==='academy'){ if(AT){tx=AT.x; tz=AT.z; lab=AT.lab;} else {tx=me.x; tz=me.z; lab='Academy';} }
+      else if(mode==='foot'&&done){ tx=car.x; tz=car.z; lab='Car'; }
       else if(mode==='drive'&&crook.state==='custody'&&crook.inCar){ tx=STATION.x; tz=STATION.z; lab='Station'; }
       const cd=Math.hypot(tx-me.x,tz-me.z);
       relV.set(tx-me.x,0,tz-me.z)
         .applyQuaternion(camQ.copy(camera.quaternion).invert());
       $('carr').style.transform='rotate('+Math.atan2(relV.x,-relV.z)+'rad)';
       $('carr').style.color=lab==='Station'?'var(--blue)':'var(--red)';
-      txt=(lab==='Crook'&&(crook.state==='cuffed'||crook.state==='booked'))?'✓':Math.round(cd)+'m';
+      txt=((lab==='Crook'&&(crook.state==='cuffed'||crook.state==='booked'))||lab==='Academy')?'✓':Math.round(cd)+'m';
       $('tlab').textContent=lab;
       $('cdist').textContent=txt;
     }
@@ -1658,39 +2759,15 @@ function tick(){
   /* transforms */
   carM.g.position.set(car.x,0,car.z); carM.g.rotation.y=car.a;
   blobM.position.x=car.x; blobM.position.z=car.z;
-  crookM.visible=(crook.state!=='escaped');
+  crookM.visible=(crook.state!=='escaped')&&phase!=='academy';   // no crook in the academy
+  if(phase==='academy')academyVisuals(now);
   if(crook.inCar){                                            // seated in the back, car-local (0.5,0.35,-0.8)
     const ca=Math.cos(car.a),sa=Math.sin(car.a);
     crookM.position.set(car.x+0.5*ca-0.8*sa,0.35,car.z-0.5*sa-0.8*ca); crookM.rotation.y=car.a;
   }else{ crookM.position.set(crook.x,0,crook.z); crookM.rotation.y=crook.a; }
 
-  /* tells — visual only, read off the crook's fields */
-  const flee=(crook.state==='flee'||crook.state==='slipped'), cuffed=(crook.state==='cuffed'||crook.state==='custody'), tased=(crook.state==='tased');
-  alertS.visible=flee&&now<crook.popUntil;                   // '!' pops 0→1.6 over 0.25 s on (re-)alert
-  if(alertS.visible){const k=1.6*clamp((now-(crook.popUntil-1500))/250,0,1); alertS.scale.set(k,k,1);}
-  alertS.position.set(crook.x,2.7+Math.sin(t*6)*0.12,crook.z);
-  const head=crookM.children[2];                             // look-back: head turns toward you
-  if(flee&&now<crook.glanceUntil){
-    const tp=threatPos(); let ga=Math.atan2(tp.x-crook.x,tp.z-crook.z)-crook.a;
-    while(ga>Math.PI)ga-=2*Math.PI; while(ga<-Math.PI)ga+=2*Math.PI;
-    head.rotation.y=clamp(ga,-1.3,1.3);
-    glanceS.visible=true; glanceS.position.set(crook.x,2.5,crook.z);
-  }else{head.rotation.y=0; glanceS.visible=false;}
-  lostS.visible=flee&&now<crook.qUntil;                      // '?' — he lost you
-  lostS.position.set(crook.x,2.7+Math.sin(t*6)*0.12,crook.z);
-  const dust=flee&&now<crook.dbUntil;                        // double-back: dust at his feet
-  const hit=flee&&now<crook.hitUntil;                        // clipped: stars round his head, like cuffed
-  for(let i=0;i<3;i++){
-    stars[i].visible=cuffed||tased||hit||(dust&&i<2);
-    if(cuffed||tased||hit){
-      const a=t*4+i*Math.PI*2/3;
-      stars[i].position.set(crook.x+Math.cos(a)*0.5,2.1,crook.z+Math.sin(a)*0.5);
-    }else if(dust){
-      const a=t*20+i*Math.PI, r=0.5+0.3*Math.sin(t*30+i);
-      stars[i].position.set(crook.x+Math.cos(a)*r,0.15+0.1*Math.abs(Math.sin(t*25+i)),crook.z+Math.sin(a)*r);
-    }
-  }
-  crookM.rotation.z=cuffed?0.35:(flee&&crook.tired)?0.12*Math.sin(2*Math.PI*3*t):0;   // tired wobble
+  crookVisuals(now,t); bubbleVisuals(now); confettiStep(now); placeRadio(); placeCard();
+  if(copM.visible)swingArms(copM,cop.mv,t);
 
   /* taser bolt: cop → aim point during the click and the flash, brighter on a hit */
   boltM.visible=taze.phase!=='idle';
@@ -1723,7 +2800,8 @@ tick();
    (mode, busts, escapes, started) are exposed as getters/setters so the harness
    always sees and can set the live value. Harmless in the browser: one global,
    never read by the game itself. */
-globalThis.__game={ selectBadge,saveCareer,hudCareer,loadBadges,careerKey,renderBadges,get badge(){return badge},
+globalThis.__game={ emit,onFx,hash32,RULES,RULES_DEF,loadRules,saveRules,renderRules,gnow,setPaused,get paused(){return paused},renderer,scene,camera,
+  selectBadge,saveCareer,hudCareer,loadBadges,careerKey,renderBadges,get badge(){return badge},
   car,cop,crook,NODES,EDGE,EDGES,SUBWAYS,IX,BUILDINGS,BOLLARDS,
   bfsPath,repath,plan,threat,edgeCost,segDist,reachR,aimPoint,respawnCrook,updateCrook,crookLabel,legHot,hotLeg,seedLegs,urgent,receding,laneAim,inCar,
   collide,collidePerson,carCircles,affordance,doAction,keys,simulate,
@@ -1735,7 +2813,203 @@ globalThis.__game={ selectBadge,saveCareer,hudCareer,loadBadges,careerKey,render
   get busts(){return busts},
   get escapes(){return escapes},
   get started(){return started}, set started(v){started=v},
+  get phase(){return phase}, set phase(v){phase=v},
+  acad,DRILLS,CONES,GATES,SLALOM,ACADEMY_PAR,startAcademy,exitAcademy,startPatrol,academyStep,stepPlayer,hintFor,buildAcademyProps,
+  academyAff,academyTarget,graduate,beginGame,applyUrlMode,renderBadges,badgeGrad,badgeCareer,startWithBadge,pickMode,fmtT,
+  get acadProps(){return acadProps},
+  tazeTarget,tgtLive,parkGate,exitSpot,wallClear,academyCuff,CUTOUT_SPOTS,slider,cutouts,RAIL,RAIL_V,FIRE_Z,PARK,DECOYS,popPair,nearestCutout,tazeRound,footStart,onFiringLine,facingAway,steerPtrs,rangeHold,rangeRoll,
+  get startMode(){return startMode}, set startMode(v){startMode=v},
+  get startOnly(){return startOnly},
+  crookM,copM,CROOK_NAMES,CRIMES,nameCrook,placeName,QuadBatch,makeMoodTextures,MOODS,MOODS_MASK,makePerson,crookMood,crookVisuals,
+  confetti,confettiBurst,confettiStep,bubble,sayBubble,bubbleVisuals,popCard,radio,placeRadio,placeCard,dispatchRadio,radioPump,radioHold,get radioQ(){return radioQ},set radioQ(v){radioQ=v},get resetArmed(){return resetArmed},tryAgain,CONE_MISS_LINE,LINEUP_NEED,RANGE_NEED,RULE_UI,roadPaintM,
+  get hintsOn(){return hintsOn}, set hintsOn(v){hintsOn=v},
+  steerKind,thumbHint,THUMB_HINT,CARD_ARM,
+  get touchSteer(){return touchSteer}, set touchSteer(v){touchSteer=v},
+  get steerPid(){return steerPid}, set steerPid(v){steerPid=v},
+  get thumbUsed(){return thumbUsed}, set thumbUsed(v){thumbUsed=v},
+  get cardArmT(){return cardArmT},
 };
+</script>
+<script id="audio">
+/* ============ CODE 3 sound pack (v0.4 side lane) — WebAudio, all synthesized, zero files ============
+   Lives outside the game script: it only READS globalThis.__game (started, mode, siren.on, car.mv, paused)
+   and listens on __game.onFx(handler) when that bus exists. Public: globalThis.__sfx =
+   { unlock(), click(), play(name,opts), setMuted(b), get muted, get ctx }.
+   iOS: the AudioContext is created/resumed only inside a real gesture (capture click/touchend/keydown).
+   Everything is a no-op without AudioContext; the game is fully playable silent. No global PRNG here
+   (noise uses its own LCG) and no page clock (timing is ctx.currentTime). */
+(function(){
+  const W=globalThis, AC=W.AudioContext||W.webkitAudioContext, doc=W.document;
+  let ctx=null, master=null, noiseBuf=null, muted=false, poll=0, fxOn=false, sirenV=null, engV=null, sirenWas=false, btn=null;
+  try{ muted=W.localStorage.getItem('code3.sound')==='0'; }catch(e){}
+  const G=()=>W.__game||null;
+
+  function unlock(){                                     // call only from a user gesture
+    if(!AC)return null;
+    try{
+      if(!ctx){
+        ctx=new AC(); master=ctx.createGain(); master.gain.value=muted?0:0.5; master.connect(ctx.destination);
+      }
+      if(ctx.state!=='running'){
+        if(ctx.resume){ const p=ctx.resume(); if(p&&p.catch)p.catch(()=>{}); }
+        try{ const b=ctx.createBufferSource(); b.buffer=ctx.createBuffer(1,1,ctx.sampleRate||22050);   // older iOS WebKit only truly
+          b.connect(ctx.destination); b.start(0); }catch(e){}                                         // unlocks once a node starts in the gesture
+      }
+    }catch(e){}
+    hookFx(); startPoll(); return ctx;
+  }
+  const live=()=>ctx&&master&&!muted;
+
+  /* ---- voice helpers: every voice gain ≤0.25, attack ≥5 ms, duration ≤0.9 s ---- */
+  const cap=(g,d)=>[Math.min(0.25,g),Math.min(0.9,d)];
+  function env(g,t,peak,dur,att){ [peak,dur]=cap(peak,dur); att=Math.max(0.005,att||0.005);
+    g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(peak,t+att);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+Math.max(att+0.005,dur)); return Math.max(att+0.005,dur); }
+  function filt(type,f,Q){ const b=ctx.createBiquadFilter(); b.type=type; b.frequency.value=f; if(Q)b.Q.value=Q; return b; }
+  function tone(type,f0,f1,t,dur,peak,o){ o=o||{};
+    try{
+      const s=ctx.createOscillator(), g=ctx.createGain(); s.type=type;
+      s.frequency.setValueAtTime(f0,t); if(f1&&f1!==f0)s.frequency.exponentialRampToValueAtTime(f1,t+Math.min(0.9,o.sweep||dur));
+      const d=env(g,t,peak,dur,o.att); let head=s;
+      if(o.lp){ const b=filt('lowpass',o.lp); s.connect(b); head=b; }
+      if(o.vib){ const l=ctx.createOscillator(), lg=ctx.createGain(); l.frequency.value=o.vib; lg.gain.value=o.vibD||40;
+        l.connect(lg); lg.connect(s.frequency); l.start(t); l.stop(t+d+0.02); }
+      head.connect(g); g.connect(master); s.start(t); s.stop(t+d+0.02);
+    }catch(e){}
+  }
+  function noiseBuffer(){                                 // 1 s of white noise from a tiny LCG (seeded, local)
+    if(noiseBuf)return noiseBuf;
+    const n=ctx.sampleRate||44100, b=ctx.createBuffer(1,n,n), d=b.getChannelData(0); let s=0x2f6b1a3d;
+    for(let i=0;i<n;i++){ s=(Math.imul(s,1664525)+1013904223)>>>0; d[i]=s/2147483648-1; }
+    return noiseBuf=b;
+  }
+  function noise(t,dur,peak,type,f0,f1,Q,att){
+    try{
+      const s=ctx.createBufferSource(), g=ctx.createGain(), b=filt(type,f0,Q); s.buffer=noiseBuffer();
+      if(f1&&f1!==f0){ b.frequency.setValueAtTime(f0,t); b.frequency.exponentialRampToValueAtTime(f1,t+Math.min(0.9,dur)); }
+      const d=env(g,t,peak,dur,att); s.connect(b); b.connect(g); g.connect(master); s.start(t); s.stop(t+d+0.02);
+    }catch(e){}
+  }
+  const NOTE={C5:523.25,E5:659.25,G5:783.99,C6:1046.5,E6:1318.5,G6:1568,B6:1975.5};
+  const cuff=t=>{ noise(t,0.03,0.2,'bandpass',4000,0,6); noise(t+0.09,0.03,0.2,'bandpass',4000,0,6);
+    tone('triangle',2400,0,t+0.09,0.3,0.05); };
+  const fanfare=t=>['C5','E5','G5','C6'].forEach((k,i)=>tone('square',NOTE[k],0,t+i*0.13,i<3?0.16:0.5,0.09,{lp:3000}));
+  const thunk=t=>{ noise(t,0.25,0.2,'lowpass',400); tone('sine',120,50,t,0.3,0.22); };
+  const squeak=t=>tone('sine',700,1400,t,0.1,0.12,{sweep:0.08});
+  const PENTA=[0,2,4,7,9];
+
+  const FX={
+    cuff, cuffCutout:cuff,
+    book(t,o){ noise(t,0.5,0.18,'bandpass',1200,0,2); tone('square',180,0,t,0.5,0.08,{lp:2500}); tone('square',271,0,t,0.5,0.07,{lp:2500});
+      const n=Math.max(0,Math.min(3,(o&&+o.stars)|0)), max=Math.max(n,Math.min(5,(o&&+o.max)||3));
+      for(let i=0;i<max;i++){ const ti=t+0.55+i*0.25;
+        if(i<n)tone('triangle',[NOTE.C6,NOTE.E6,NOTE.G6][i],0,ti,0.4,0.14);
+        else tone('sine',150,110,ti,0.2,0.12); } },
+    rank:fanfare, graduate:fanfare,
+    tazeHit(t){ noise(t,0.35,0.2,'bandpass',3000,0,3,0.005); tone('sawtooth',90,70,t,0.3,0.05,{lp:1500}); },
+    tazeMiss(t){ tone('sine',400,120,t,0.55,0.16,{vib:9,vibD:25}); },
+    alert(t){ squeak(t); squeak(t+0.14); }, glance:squeak,
+    slip(t){ for(let i=0;i<6;i++)noise(t+i*0.045,0.03,0.14,'bandpass',2500,0,4); },
+    escape(t){ noise(t,0.6,0.16,'highpass',300,3000,0.8,0.08); },
+    crash:thunk, clip:thunk,
+    whistle(t,o){ tone('sine',2800,0,t,o&&o.long?0.9:0.35,0.1,{vib:28,vibD:90,att:0.02}); },
+    gate(t,o){ const i=Math.max(0,(o&&+o.i)|0); tone('triangle',NOTE.C5*Math.pow(2,PENTA[i%5]/12+Math.min(2,Math.floor(i/5))),0,t,0.4,0.14); },
+    cone(t){ tone('triangle',900,500,t,0.05,0.14); noise(t,0.03,0.08,'bandpass',2000,0,3); },
+    popup(t){ tone('sine',200,600,t,0.3,0.16,{sweep:0.2}); },
+    decoy(t){ tone('square',330,0,t,0.12,0.09,{lp:1200}); tone('square',330,0,t+0.17,0.18,0.09,{lp:1200}); },
+    newBest(t){ tone('triangle',NOTE.E6,0,t,0.2,0.12); tone('triangle',NOTE.B6,0,t+0.1,0.35,0.12); },
+  };
+  function play(name,opts){
+    if(!live()||!Object.prototype.hasOwnProperty.call(FX,name))return false;
+    try{ FX[name](ctx.currentTime+0.01,opts||{}); }catch(e){}
+    return true;
+  }
+  function onFx(a,b){ if(a&&typeof a==='object')play(a.name||a.type,a.data||a); else play(a,b); }
+  function hookFx(){ const g=G(); if(fxOn||!g||typeof g.onFx!=='function')return;
+    try{ g.onFx(onFx); fxOn=true; }catch(e){} }
+
+  function click(){                                      // the taser's 20 ms tell — same blip as v0.3 clickBlip
+    // 0.24 voice × 0.5 master = 0.12 at the speaker, the same level v0.3 sent straight to destination
+    unlock(); if(!live())return;
+    try{ const t=ctx.currentTime, o=ctx.createOscillator(), g=ctx.createGain(); o.type='square'; o.frequency.value=1800;
+      g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.24,t+0.005); g.gain.setValueAtTime(0.24,t+0.015);
+      g.gain.linearRampToValueAtTime(0,t+0.02); o.connect(g); g.connect(master); o.start(t); o.stop(t+0.025); }catch(e){}
+  }
+
+  /* ---- continuous: siren wail + engine, polled ~20 Hz ---- */
+  function mkSiren(){ try{
+    const o=ctx.createOscillator(), lp=filt('lowpass',2200), g=ctx.createGain(), l=ctx.createOscillator(), lg=ctx.createGain();
+    o.type='sawtooth'; o.frequency.value=1000; l.type='triangle'; l.frequency.value=0.7; lg.gain.value=350;
+    l.connect(lg); lg.connect(o.frequency); o.connect(lp); lp.connect(g); g.gain.value=0; g.connect(master);
+    o.start(); l.start(); sirenV={o,l,g};
+  }catch(e){} }
+  function mkEngine(){ try{
+    const o=ctx.createOscillator(), lp=filt('lowpass',500), g=ctx.createGain();
+    o.type='square'; o.frequency.value=38; o.connect(lp); lp.connect(g); g.gain.value=0; g.connect(master); o.start(); engV={o,g};
+  }catch(e){} }
+  function tickLoop(){
+    if(!ctx)return; hookFx();
+    const g=G(), t=ctx.currentTime;
+    let drive=false, on=false, mv=0;
+    try{ drive=!!(g&&g.started&&g.mode==='drive'&&!g.paused&&!(doc&&doc.hidden));
+      on=drive&&!!(g.siren&&g.siren.on); mv=Math.abs((g.car&&+g.car.mv)||0); }catch(e){}
+    try{
+      if(on&&!sirenV)mkSiren();
+      if(sirenV){
+        if(on&&!sirenWas){ sirenV.l.frequency.cancelScheduledValues(t); sirenV.l.frequency.setValueAtTime(6,t);
+          sirenV.l.frequency.setValueAtTime(0.7,t+1.5); }                     // 1.5 s yelp, then the wail
+        sirenV.g.gain.setTargetAtTime(on?0.1:0,t,on?0.03:0.08);
+      }
+      sirenWas=on;
+      if(drive&&!engV)mkEngine();
+      if(engV){ engV.o.frequency.setTargetAtTime(38+0.9*mv,t,0.05);
+        engV.g.gain.setTargetAtTime(drive?0.03+0.04*Math.min(1,mv/25):0,t,0.08); }
+    }catch(e){}
+  }
+  function hush(){                                       // loops to 0 now (hidden/pause); the yelp replays next time
+    if(!ctx)return; const t=ctx.currentTime;
+    [sirenV,engV].forEach(v=>{ try{ if(v){ v.g.gain.cancelScheduledValues(t); v.g.gain.setValueAtTime(0,t); } }catch(e){} });
+    sirenWas=false;
+  }
+  function startPoll(){ if(!poll&&ctx&&!(doc&&doc.hidden))poll=W.setInterval(tickLoop,50); }
+  function stopPoll(){ if(poll){ W.clearInterval(poll); poll=0; } }
+
+  function setMuted(b){
+    muted=!!b;
+    try{ W.localStorage.setItem('code3.sound',muted?'0':'1'); }catch(e){}
+    try{ if(master){ master.gain.cancelScheduledValues(ctx.currentTime); master.gain.value=muted?0:0.5; } }catch(e){}
+    if(btn){ btn.textContent=muted?'off':'on'; btn.classList.toggle('on',!muted); }
+  }
+
+  /* ---- iOS unlock: first real gesture (and the next one after coming back from the background) ---- */
+  const gesture=()=>{ if(!ctx||ctx.state!=='running')unlock(); };
+  if(doc&&doc.addEventListener){
+    ['click','touchend','keydown'].forEach(ev=>doc.addEventListener(ev,gesture,true));
+    doc.addEventListener('visibilitychange',()=>{
+      if(doc.hidden){ stopPoll(); hush();                // zero the loops first so nothing blips on resume
+        try{ if(ctx&&ctx.suspend){ const p=ctx.suspend(); if(p&&p.catch)p.catch(()=>{}); } }catch(e){} }
+      else if(ctx){ tickLoop();                          // paused → keeps the loops at 0; ramps up only once live
+        try{ const p=ctx.resume&&ctx.resume(); if(p&&p.catch)p.catch(()=>{}); }catch(e){} startPoll(); }
+    });
+    try{                                                 // runtime-injected UI: mute row + ring-switch hint
+      const set=doc.getElementById('settings');
+      if(set){
+        const row=doc.createElement('div'), lab=doc.createElement('span'); btn=doc.createElement('button');
+        row.className='row'; lab.textContent='🔊 Sound'; btn.className='tog'; btn.id='tSound';
+        btn.textContent=muted?'off':'on'; btn.classList.toggle('on',!muted);
+        btn.addEventListener('click',e=>{ e.stopPropagation(); setMuted(!muted); });
+        row.appendChild(lab); row.appendChild(btn);
+        const dbg=doc.getElementById('debug'); if(dbg&&dbg.parentNode===set)set.insertBefore(row,dbg); else set.appendChild(row);
+      }
+      const note=doc.getElementById('note');
+      if(note){ const s=doc.createElement('span'); s.id='sndNote'; s.textContent='🔈 No sound? Flip the ring switch.';
+        note.appendChild(doc.createElement('br')); note.appendChild(s); }
+    }catch(e){}
+  }
+  hookFx();
+
+  W.__sfx={ unlock, click, play, setMuted, get muted(){return muted}, get ctx(){return ctx} };
+})();
 </script>
 </body>
 </html>

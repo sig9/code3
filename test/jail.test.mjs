@@ -310,7 +310,7 @@ test('S4 career: saveCareer writes code3.career, loadCareer round-trips, a fresh
   // the HUD reflects the loaded career on boot
   G.saveCareer();
   assert.equal(G.dom('cstars').textContent, '0', 'HUD was set at boot from an empty store');
-  G.dom('bReset').dispatch('pointerdown');
+  G.dom('bReset').dispatch('click'); G.dom('bReset').dispatch('click');
   same(G.career, { stars: 0, booked: 0, escapes: 0, slips: 0 });
   assert.equal(G.dom('msg').textContent, 'Career reset');
   assert.equal(JSON.parse(G.ctx.localStorage.getItem('code3.career')).stars, 0);
@@ -464,5 +464,10 @@ test('S4 HUD + budget: score chip lines, #card and #cline markup, no new touchab
   const buttons = html.match(/<button id="b[A-Z][a-zA-Z]*"/g).map(m => m.slice(12, -1));
   assert.deepEqual(buttons.sort(), ['bAct', 'bBadge', 'bCal', 'bRespawn', 'bReset', 'bSiren', 'bTaze'].sort(), 'no new in-play touchables (bReset and bBadge live in the settings panel)');
   assert.equal((html.match(/<script id="game">/g) || []).length, 1);
-  assert.equal(html.split('</script>').length - 1, 2, 'one three.js include + the game script: still one file');
+  // v0.4: inline side-lane scripts (<script id="pwa">, <script id="audio">) are allowed; "one file" means
+  // exactly one external include (three.js from the CDN), no local <script src>, and no other extra scripts.
+  const extraInline = ['pwa', 'audio'].filter(id => html.includes(`<script id="${id}">`)).length;
+  assert.equal(html.split('</script>').length - 1 - extraInline, 2, 'one three.js include + the game script (+ the inline v0.4 pwa/audio scripts): still one file');
+  assert.deepEqual(html.match(/<script[^>]*\ssrc=[^>]*>/g).map(t => /https:\/\/cdnjs\.cloudflare\.com\//.test(t)), [true],
+    'one three.js include + inline scripts only: still one file');
 });

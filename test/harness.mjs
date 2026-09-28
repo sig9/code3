@@ -161,7 +161,7 @@ function makeThreeStub() {
       this.args = args;
       this.position = new Vector3(); this.rotation = new Euler(); this.scale = new Vector3(1, 1, 1);
       this.quaternion = new Quaternion();
-      this.visible = true; this.children = []; this.uuid = Math.random().toString(36).slice(2);
+      this.visible = true; this.children = []; this.userData = {}; this.uuid = Math.random().toString(36).slice(2);
       return new Proxy(this, {
         get(o, p) {
           if (p in o) return o[p];
@@ -215,12 +215,15 @@ function mulberry32(seed) {
  * @param {string} [opts.html]       index.html text (defaults to reading INDEX_HTML)
  * @param {number} [opts.innerWidth=390]  viewport stubs (phone-ish by default)
  * @param {number} [opts.innerHeight=844]
+ * @param {object} [opts.storage]  localStorage entries present before the game loads (a relaunch)
  * @returns the game's __game shim, extended with:
  *   step(seconds, dtPerStep=1/60)  advance the sim; returns number of steps run
  *   setKeys({left,right,gas,brake}) set desktop-key state (partial object OK)
  *   now()                          harness clock in ms (what performance.now() returns)
  *   dom(id)                        the stub element the game got from getElementById(id)
  *   fire(type, event)              dispatch a window-level event (keydown, keyup, blur …)
+ *   advance(ms)                    move the clock without simulating (pause tests)
+ *   events                         onFx log [{type,data,t}] with events.clear() / events.count(type)
  *   evalInGame(code)               DEBUG AID: evaluate code inside the game's vm context
  *                                  (sees top-level let/const — for poking, not for tests;
  *                                  tests should use symbols exported through the shim)
@@ -255,7 +258,7 @@ export function loadGame(opts = {}) {
     screen: { orientation: { angle: 0, type: 'portrait-primary', addEventListener() {} }, width: innerWidth, height: innerHeight },
     navigator: { userAgent: 'node-harness', maxTouchPoints: 0, vibrate() { return false; } },
     performance: { now: () => clock.now },
-    localStorage: (() => { const m = new Map(); return {
+    localStorage: (() => { const m = new Map(Object.entries(opts.storage || {}).map(([k, v]) => [k, String(v)])); return {
       getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)),
       removeItem: k => m.delete(k), clear: () => m.clear(), key: i => [...m.keys()][i] ?? null, get length() { return m.size; } }; })(),
     addEventListener(type, fn) { if (!winListeners.has(type)) winListeners.set(type, []); winListeners.get(type).push(fn); },
@@ -281,7 +284,8 @@ export function loadGame(opts = {}) {
 
   const step = (seconds, dtPerStep = 1 / 60) => {
     const n = Math.max(1, Math.round(seconds / dtPerStep));
-    for (let i = 0; i < n; i++) { clock.now += dtPerStep * 1000; G.simulate(dtPerStep, clock.now); }
+    // simulate() gets the GAME clock (gnow(): wall minus paused time), like tick() does
+    for (let i = 0; i < n; i++) { clock.now += dtPerStep * 1000; G.simulate(dtPerStep, G.gnow ? G.gnow() : clock.now); }
     return n;
   };
   const setKeys = (k = {}) => { Object.assign(G.keys, k); return G.keys; };
@@ -291,8 +295,16 @@ export function loadGame(opts = {}) {
     return e;
   };
 
+  /* advance(ms): move the wall clock WITHOUT simulating (a paused phone, a tab in the background) */
+  const advance = (ms) => { clock.now += ms; return clock.now; };
+  /* events: every emit(type,data) since load (or the last events.clear()), as {type,data,t} */
+  const events = [];
+  events.clear = () => { events.length = 0; };
+  events.count = (type) => events.filter(e => e.type === type).length;
+  if (typeof G.onFx === 'function') G.onFx((type, data) => events.push({ type, data, t: clock.now }));
+
   Object.assign(G, {
-    step, setKeys, fire,
+    step, setKeys, fire, advance, events,
     now: () => clock.now,
     dom: getEl,
     evalInGame: (src) => vm.runInContext(src, ctx),

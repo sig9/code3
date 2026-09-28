@@ -1,0 +1,17 @@
+{
+  "name": "CODE 3",
+  "short_name": "CODE 3",
+  "description": "Phone-first police chase. Tilt to drive, run him down, book him at Precinct 3.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#0b1017",
+  "theme_color": "#1f5fd6",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
